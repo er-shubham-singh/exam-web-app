@@ -3,7 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
 import CreateQuestion from "./pages/CreateQuestion"; // your existing page
 import PaperSubmit from "./pages/PaperSubmit";       // your submit page
-import NavBar from "./Component/layout/NAvBar";
+import NavBar from "./Component/layout/NavBar";
 import ViewPaper from "./pages/ViewPaper";
 import Mentor from "./pages/Mentor";
 import PaperEvaluation from "./pages/PaperEvaluation";
