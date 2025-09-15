@@ -29,4 +29,7 @@ app.use("/api",evaluationRoute)
 import viewResult from './routes/viewResult.routes.js'
 app.use("/api",viewResult)
 
+// admin permission
+import adminPermission from './routes/admin.permission.routes.js'
+app.use("/api",adminPermission)
 export default app;

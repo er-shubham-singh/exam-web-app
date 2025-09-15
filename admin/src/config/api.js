@@ -1,7 +1,8 @@
+// src/utils/api.js
 import axios from "axios";
 
 const api = axios.create({
-baseURL: import.meta.env.VITE_API_URI, 
+  baseURL: import.meta.env.VITE_API_URI,
   headers: {
     "Content-Type": "application/json",
   },
@@ -10,7 +11,8 @@ baseURL: import.meta.env.VITE_API_URI,
 // 🔹 Request Interceptor
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("token");
+    // Make sure key matches what you save in login action/reducer
+    const token = localStorage.getItem("authToken"); // <--- FIXED
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -19,12 +21,12 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    console.error("API Error:", error.response?.data || error.message);
-    return Promise.reject(error);
-  }
-);
+// src/config/api.js
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token") || localStorage.getItem("authToken");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 
 export default api;

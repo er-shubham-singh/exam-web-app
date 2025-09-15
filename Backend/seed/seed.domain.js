@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-import Domain from "../src/Modall/domain.model.js";
+import Domain from "../src/Modal/domain.model.js";
 import { DOMAIN_DATA } from "./domain.data.js";
 
 dotenv.config();
