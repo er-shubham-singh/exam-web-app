@@ -66,6 +66,7 @@ export default function AdminCreateEmployee() {
               <option value="evaluator">Evaluator</option>
               <option value="student">Student</option>
               <option value="admin">Admin</option>
+              <option value="papercreation">paper Set</option>
             </select>
           </div>
 
