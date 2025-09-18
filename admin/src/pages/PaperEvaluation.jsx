@@ -2,9 +2,60 @@ import React, { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { fetchEvaluationHistory } from "../Redux/EvaluationResult/action";
 
+const isNumericKeyObject = (obj) => {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+  const keys = Object.keys(obj);
+  if (keys.length === 0) return false;
+  // allow also keys like "0","1",... with maybe some other metadata like "runType"
+  // we treat as char-map only when the majority of keys are numeric or there exists '0' key
+  const numericKeys = keys.filter(k => /^\d+$/.test(k));
+  return numericKeys.length > 0 && numericKeys.length >= Math.min(1, keys.length - 1);
+};
+
+const reconstructFromCharMap = (obj) => {
+  // collect numeric keys, sort by numeric order and join their values
+  const numericPairs = Object.entries(obj)
+    .filter(([k, v]) => /^\d+$/.test(k))
+    .map(([k, v]) => [Number(k), String(v ?? "")]);
+  if (numericPairs.length === 0) return null;
+  numericPairs.sort((a, b) => a[0] - b[0]);
+  return numericPairs.map(([, v]) => v).join("");
+};
+
 const renderAnswer = (ans) => {
-  if (ans === null || typeof ans === "undefined") return <span className="text-slate-400">N/A</span>;
-  if (typeof ans === "string" || typeof ans === "number") return <span>{ans}</span>;
+  if (ans === null || typeof ans === "undefined") {
+    return <span className="text-slate-400">N/A</span>;
+  }
+
+  // If it's a numeric-key object (character map) -> reconstruct sentence
+  if (isNumericKeyObject(ans)) {
+    const text = reconstructFromCharMap(ans);
+    if (text !== null && text.trim().length > 0) {
+      return (
+        <div className="bg-slate-800 p-2 rounded whitespace-pre-wrap text-sm text-slate-200">
+          {text}
+        </div>
+      );
+    }
+  }
+
+  // MCQ short object like {"0":"C", "runType":null}
+  if (typeof ans === "object" && ans !== null && Object.prototype.hasOwnProperty.call(ans, "0") && Object.keys(ans).length <= 3) {
+    // return values joined (handles cases like {"0":"C"} or {"0":"C","runType":null})
+    const mcqValue = Object.values(ans).filter(v => v !== null && v !== undefined && String(v).trim() !== "").join(", ");
+    return <span className="text-green-300 font-semibold">{mcqValue || "—"}</span>;
+  }
+
+  // Plain string (long theory answer)
+  if (typeof ans === "string") {
+    return (
+      <div className="bg-slate-800 p-2 rounded whitespace-pre-wrap text-sm text-slate-200">
+        {ans}
+      </div>
+    );
+  }
+
+  // Array of answers
   if (Array.isArray(ans)) {
     return (
       <div className="space-y-1">
@@ -14,7 +65,8 @@ const renderAnswer = (ans) => {
       </div>
     );
   }
-  // treat as object (likely coding answer)
+
+  // Code object (with code property) or other complex object
   if (typeof ans === "object") {
     const { code, language, lastSavedAt, ...rest } = ans;
     return (
@@ -37,14 +89,19 @@ const renderAnswer = (ans) => {
         ) : (
           <div className="text-sm text-slate-400">No code provided</div>
         )}
+
+        {/* show other metadata if present (but hide huge char maps) */}
         {Object.keys(rest).length > 0 && (
-          <div className="text-xs text-slate-400">Other: {JSON.stringify(rest)}</div>
+          <div className="text-xs text-slate-400 mt-2">Other: {JSON.stringify(rest)}</div>
         )}
       </div>
     );
   }
+
   return <span>{String(ans)}</span>;
 };
+
+
 
 const normalizeId = (idOrObj) => {
   if (!idOrObj && idOrObj !== 0) return null;

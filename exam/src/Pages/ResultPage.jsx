@@ -17,6 +17,96 @@ const gradeFromPercent = (p) => {
   return { grade: "F", color: "bg-red-600" };
 };
 
+// --- Helpers for rendering answers ---
+const isNumericKeyObject = (obj) => {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+  const keys = Object.keys(obj);
+  return keys.some((k) => /^\d+$/.test(k));
+};
+
+const reconstructFromCharMap = (obj) => {
+  const numericPairs = Object.entries(obj)
+    .filter(([k]) => /^\d+$/.test(k))
+    .map(([k, v]) => [Number(k), v == null ? "" : String(v)]);
+  numericPairs.sort((a, b) => a[0] - b[0]);
+  return numericPairs.map(([, v]) => v).join("");
+};
+
+const renderAnswer = (ans) => {
+  if (ans === null || typeof ans === "undefined") {
+    return <span className="text-slate-400">N/A</span>;
+  }
+
+  if (isNumericKeyObject(ans)) {
+    const text = reconstructFromCharMap(ans);
+    return <span className="whitespace-pre-wrap">{text || "-"}</span>;
+  }
+
+  if (typeof ans === "object" && Object.prototype.hasOwnProperty.call(ans, "0")) {
+    const val = Object.values(ans)
+      .filter((v) => v !== null && v !== undefined && String(v).trim() !== "")
+      .join(", ");
+    return <span>{val || "—"}</span>;
+  }
+
+  if (typeof ans === "string" || typeof ans === "number") {
+    return <span className="whitespace-pre-wrap">{String(ans)}</span>;
+  }
+
+  if (Array.isArray(ans)) {
+    return (
+      <div className="space-y-1">
+        {ans.map((a, i) => (
+          <div key={i}>{renderAnswer(a)}</div>
+        ))}
+      </div>
+    );
+  }
+
+  if (typeof ans === "object") {
+    const { code, language, lastSavedAt, ...rest } = ans;
+    return (
+      <div className="space-y-2">
+        {language && (
+          <div className="text-xs text-slate-300">
+            <strong>Language:</strong> <span className="text-white ml-1">{language}</span>
+          </div>
+        )}
+        {lastSavedAt && (
+          <div className="text-xs text-slate-300">
+            <strong>Saved:</strong>{" "}
+            <span className="text-slate-200 ml-1">{new Date(lastSavedAt).toLocaleString()}</span>
+          </div>
+        )}
+        {code ? (
+          <pre className="bg-slate-900 p-2 rounded text-xs font-mono whitespace-pre-wrap break-words border border-slate-700">
+            {code}
+          </pre>
+        ) : (
+          <div className="text-sm text-slate-400">No code provided</div>
+        )}
+        {Object.keys(rest).length > 0 && (
+          <div className="text-xs text-slate-400 mt-2">Other: {JSON.stringify(rest)}</div>
+        )}
+      </div>
+    );
+  }
+
+  return <span>{String(ans)}</span>;
+};
+
+const normalizeQid = (qid) => {
+  if (!qid && qid !== 0) return null;
+  if (typeof qid === "object") {
+    if (qid._id) return String(qid._id);
+    try {
+      return String(qid);
+    } catch {
+      return null;
+    }
+  }
+  return String(qid);
+};
 export default function ResultPage() {
   const dispatch = useDispatch();
   const { loading, resultsList = [], selectedResult = null, error } = useSelector(
@@ -98,7 +188,8 @@ export default function ResultPage() {
     if (!displayResult?.attemptedAnswers) return [];
     const map = new Map();
     displayResult.attemptedAnswers.forEach((a) => {
-      map.set(String(a.questionId), a); // last attempt wins
+      const key = normalizeQid(a.questionId) || `idx-${Math.random().toString(36).slice(2, 9)}`;
+      map.set(key, a);
     });
     return Array.from(map.values());
   }, [displayResult]);
@@ -274,9 +365,10 @@ export default function ResultPage() {
 
                 const colorClass = isCorrect ? "border-green-300 bg-green-900" : "border-red-300 bg-red-900";
                 const textColor = isCorrect ? "text-green-300" : "text-red-300";
+                const key = normalizeQid(a.questionId) || `attempt-${idx}`;
 
                 return (
-                  <div key={a.questionId || idx} className={`p-5 rounded-xl border ${colorClass} transition-colors duration-300`}>
+                  <div key={key} className={`p-5 rounded-xl border ${colorClass} transition-colors duration-300`}>
                     <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
                       <div className="flex-1">
                         <div className="text-base font-medium text-white">{idx + 1}. {fb?.questionText || "(Question text not available)"}</div>
@@ -284,7 +376,7 @@ export default function ResultPage() {
                         <div className="mt-4">
                           <div className="text-sm text-gray-400">Your answer:</div>
                           <div className={`mt-2 p-3 rounded-xl ${isCorrect ? "bg-green-800" : "bg-red-800"} ${textColor} font-mono break-words`}>
-                            {a.answer ?? "-"}
+                            {renderAnswer(a.answer)}
                           </div>
                         </div>
                       </div>
