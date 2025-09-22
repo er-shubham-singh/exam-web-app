@@ -18,8 +18,6 @@ const paperSchema = new mongoose.Schema(
     },
 
     description: { type: String, required: true },
-
-    // Can include MCQ, THEORY, or CODING questions
     questions: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -27,12 +25,12 @@ const paperSchema = new mongoose.Schema(
         required: true,
       },
     ],
-
+defaultTimeLimitMin: { type: Number, default: 60 },
     totalMarks: { type: Number, default: 0 },
     isPublished: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
 
-const Paper = mongoose.models.Paper || mongoose.model("Paper", paperSchema);
-export default Paper;
+const PaperTemplate = mongoose.models.PaperTemplate || mongoose.model("PaperTemplate", paperSchema);
+export default PaperTemplate;

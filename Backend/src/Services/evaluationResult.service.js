@@ -18,20 +18,33 @@ function cosineSimilarity(a, b) {
   return magA && magB ? dot / (magA * magB) : 0;
 }
 
+// inside services/evaluation.service.js (top imports)
+import { runCodeOnJudge as pistonRunCodeOnJudge } from "./codeRunner.service.js"; // <-- new
+
+// replace the old runCodeOnJudge function with this:
 async function runCodeOnJudge({ language, code, tests = [], timeLimitMs = 2000 }) {
   const runnerUrl = process.env.CODE_RUNNER_URL;
-  if (!runnerUrl) return null;
+  if (runnerUrl) {
+    try {
+      const payload = { language, code, tests, timeLimitMs };
+      const resp = await axios.post(runnerUrl, payload, { timeout: 30000 });
+      if (resp && resp.data) return resp.data;
+    } catch (err) {
+      console.error("External CODE_RUNNER_URL failed:", err.message || err);
+      // fall through to piston-based runner
+    }
+  }
 
+  // fallback to Piston wrapper implemented earlier
   try {
-    const payload = { language, code, tests, timeLimitMs };
-    const resp = await axios.post(runnerUrl, payload, { timeout: 30000 });
-    if (resp && resp.data) return resp.data;
-    return null;
+    const resp = await pistonRunCodeOnJudge({ language, code, tests, timeLimitMs });
+    return resp;
   } catch (err) {
-    console.error("runCodeOnJudge failed:", err.message || err);
+    console.error("Fallback pistonRunCodeOnJudge failed:", err && err.message ? err.message : err);
     return null;
   }
 }
+
 
 function simpleLocalEvaluate({ code, language, tests = [], compareMode = "trimmed" }) {
   const results = tests.map((t, idx) => ({

@@ -6,6 +6,8 @@ import { mentorReducer } from "./Mentor/reduser";
 import evaluationReducer from "./EvaluationResult/reducer";
 import { employeeReducer } from "./adminPermession/reducer";
 import authReducer from "./login/reducer";
+import { paperSetReducer } from "./paperSet/reducer";
+import { paperTemplateReducer } from "./papertemplate/reducer";
 
 
 
@@ -17,7 +19,9 @@ const store = configureStore({
         mentor:mentorReducer,
         evaluation:evaluationReducer,
         employee:employeeReducer,
-        auth:authReducer
+        auth:authReducer,
+          paperSets: paperSetReducer,
+  paperTemplates: paperTemplateReducer,
     }
 })
 

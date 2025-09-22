@@ -19,29 +19,37 @@ import {
 export const createPaper = (data) => async (dispatch) => {
   dispatch({ type: CREATE_PAPER_REQUEST });
   try {
+    console.log("[createPaper] sending payload:", data);
     const res = await api.post("/api/papers", data);
-    dispatch({ type: CREATE_PAPER_SUCCESS, payload: res.data.message });
+    console.log("[createPaper] server response:", res.data);
+    const tpl = res.data?.tpl || res.data?.message || res.data;
+    dispatch({ type: CREATE_PAPER_SUCCESS, payload: tpl });
+    return tpl;
   } catch (err) {
-    dispatch({
-      type: CREATE_PAPER_FAIL,
-      payload: err.response?.data?.message || "Failed to create paper",
-    });
+    console.error("[createPaper] error:", err?.response?.data || err.message || err);
+    const msg = err.response?.data?.message || "Failed to create paper";
+    dispatch({ type: CREATE_PAPER_FAIL, payload: msg });
+    throw err;
   }
 };
+
+
 
 // UPDATE
 export const updatePaper = (id, data) => async (dispatch) => {
   dispatch({ type: UPDATE_PAPER_REQUEST });
   try {
     const res = await api.put(`/api/papers/${id}`, data);
-    dispatch({ type: UPDATE_PAPER_SUCCESS, payload: res.data.message });
+    const payload = res.data?.updated || res.data?.message || res.data;
+    dispatch({ type: UPDATE_PAPER_SUCCESS, payload });
+    return payload;
   } catch (err) {
-    dispatch({
-      type: UPDATE_PAPER_FAIL,
-      payload: err.response?.data?.message || "Failed to update paper",
-    });
+    const msg = err.response?.data?.message || "Failed to update paper";
+    dispatch({ type: UPDATE_PAPER_FAIL, payload: msg });
+    throw err;
   }
 };
+
 
 // DELETE
 export const deletePaper = (id) => async (dispatch) => {

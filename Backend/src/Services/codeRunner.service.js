@@ -2,15 +2,54 @@
 import axios from "axios";
 
 /**
- * Run code using Piston API
- * @param {Object} options
- * @param {string} options.language - e.g. "javascript"
- * @param {string} options.code - student code
- * @param {Array} [options.tests] - array of test cases: [{input, expected, score}]
- * @param {number} [options.timeLimitMs=2000] - execution timeout
- * @param {string} [options.stdin] - optional manual stdin (student custom input)
- * @param {"evaluation"|"debug"} [options.mode="evaluation"]
+ * Run code using Piston API (https://emkc.org/api/v2/piston)
+ * Supports: javascript, python, java, c, cpp
+ *
+ * Options:
+ *  - language: string ("javascript","python","java","c","cpp")
+ *  - code: source code string
+ *  - tests: array of { input, expected, score, isPublic } (optional)
+ *  - timeLimitMs: execution timeout (ms)
+ *  - stdin: manual stdin (string) - forwarded entirely (read-all-stdin)
+ *  - mode: "evaluation" | "debug"
+ *
+ * Returns a consistent response:
+ *  {
+ *    status: "success" | "failed" | "debug",
+ *    summary: { passedCount, totalCount },
+ *    results: [{ index, passed, stdout, stderr, compileOutput?, timeMs, memoryMB }],
+ *    stdout, stderr, compileOutput?
+ *  }
  */
+
+const LANGUAGE_MAP = {
+  javascript: { piston: "javascript", filename: "main.js" },
+  python: { piston: "python", filename: "main.py" },
+  java: { piston: "java", filename: "Main.java" }, // require top-level class Main
+  c: { piston: "c", filename: "main.c" },
+  cpp: { piston: "cpp", filename: "main.cpp" },
+};
+
+async function getRuntimeVersion(language) {
+  try {
+    const versionsResp = await axios.get("https://emkc.org/api/v2/piston/runtimes", { timeout: 20000 });
+    const runtime = versionsResp.data.find((r) => r.language === language);
+    return runtime ? runtime.version : "latest";
+  } catch (err) {
+    // fallback to latest string
+    return "latest";
+  }
+}
+
+function buildFileObj(langKey, code) {
+  const mapping = LANGUAGE_MAP[langKey];
+  if (!mapping) {
+    // fallback generic file
+    return { name: "main.txt", content: code };
+  }
+  return { name: mapping.filename, content: code };
+}
+
 export async function runCodeOnJudge({
   language,
   code,
@@ -19,64 +58,112 @@ export async function runCodeOnJudge({
   stdin = "",
   mode = "evaluation",
 }) {
-  try {
-    // ✅ fetch runtime
-    const versionsResp = await axios.get(`https://emkc.org/api/v2/piston/runtimes`);
-    const runtime = versionsResp.data.find(r => r.language === language);
-    const version = runtime ? runtime.version : "latest";
+  // normalize language alias (allow "c++" -> "cpp", "js" -> "javascript")
+  let langKey = (language || "").toString().toLowerCase();
+  if (langKey === "c++") langKey = "cpp";
+  if (langKey === "js") langKey = "javascript";
+  if (!LANGUAGE_MAP[langKey]) {
+    return {
+      status: "failed",
+      summary: { passedCount: 0, totalCount: Array.isArray(tests) ? tests.length : 0 },
+      results: (Array.isArray(tests) ? tests : [null]).map((_, i) => ({
+        index: i,
+        passed: false,
+        stdout: "",
+        stderr: `Unsupported language: ${language}`,
+        timeMs: 0,
+        memoryMB: 0,
+      })),
+    };
+  }
 
-    // --- DEBUG MODE: run once with stdin ---
-    if (mode === "debug") {
+  try {
+    // Resolve runtime version (best-effort)
+    const version = await getRuntimeVersion(LANGUAGE_MAP[langKey].piston);
+
+    // helper to call piston execute with filename included
+    async function executeOnce({ input = "" } = {}) {
       const payload = {
-        language,
+        language: LANGUAGE_MAP[langKey].piston,
         version,
-        files: [{ content: code }],
-        stdin: (typeof stdin !== "undefined" && stdin !== null) ? String(stdin) : "",
+        files: [buildFileObj(langKey, code)],
+        stdin: (typeof input !== "undefined" && input !== null) ? String(input) : "",
+        // note: Piston supports args, compile_timeout, run_timeout depending on host; we avoid non-portable fields
       };
-      console.log("RUN_CODE_ON_JUDGE -> POST /piston/execute payload:", {
-        language: payload.language,
-        version: payload.version,
-        stdinPreview: payload.stdin.length > 200 ? payload.stdin.slice(0,200) + "..." : payload.stdin,
-        filesPreview: payload.files.map(f => (f.content || "").slice(0,120))
+
+      const resp = await axios.post("https://emkc.org/api/v2/piston/execute", payload, {
+        timeout: Math.max(30000, timeLimitMs + 10000),
       });
-      const runResp = await axios.post("https://emkc.org/api/v2/piston/execute",payload);
+      return resp.data;
+    }
+
+    // DEBUG: run once with provided stdin and return raw stdout/stderr (no grading)
+    if (mode === "debug") {
+      const runResp = await executeOnce({ input: stdin });
+
+      // Piston may include compile and run fields: { compile: {...}, run: {...} }
+      const compileOut = runResp.compile ? (runResp.compile.stdout || runResp.compile.stderr || "").toString().trim() : "";
+      const runOut = runResp.run || {};
+      const stdout = (runOut.stdout || "").toString().trim();
+      const stderr = (runOut.stderr || "").toString().trim();
 
       return {
         status: "debug",
-        summary: { passedCount: null, totalCount: null }, // not graded
+        summary: { passedCount: null, totalCount: null },
         results: [
           {
             index: 0,
-            passed: null, // not applicable
-            stdout: runResp.data.run.stdout.trim(),
-            stderr: runResp.data.run.stderr.trim(),
-            timeMs: runResp.data.run.time || 0,
-            memoryMB: runResp.data.run.memory || 0,
+            passed: null,
+            stdout,
+            stderr,
+            compileOutput: compileOut,
+            timeMs: runOut.time || 0,
+            memoryMB: runOut.memory || 0,
           },
         ],
-        stdout: runResp.data.run.stdout.trim(),
-        stderr: runResp.data.run.stderr.trim(),
+        stdout,
+        stderr,
+        compileOutput: compileOut,
       };
     }
 
-    // --- EVALUATION MODE: run against each test case ---
+    // EVALUATION: run tests array
     const results = [];
     let passedCount = 0;
 
-    for (let i = 0; i < tests.length; i++) {
-      const t = tests[i];
-      const runResp = await axios.post("https://emkc.org/api/v2/piston/execute", {
-        language,
-        version,
-        files: [{ content: code }],
-        stdin: (typeof t.input !== "undefined" && t.input !== null) ? String(t.input) : "",
+    // If no tests provided, still run once (useful fallback): treat as single test with given stdin
+    const effectiveTests = Array.isArray(tests) && tests.length ? tests : [{ input: stdin || "", expected: "" }];
 
-      });
+    for (let i = 0; i < effectiveTests.length; i++) {
+      const t = effectiveTests[i] || {};
+      const input = (typeof t.input !== "undefined" && t.input !== null) ? String(t.input) : "";
 
-      const stdout = runResp.data.run.stdout.trim();
-      const stderr = runResp.data.run.stderr.trim();
+      let runResp;
+      try {
+        runResp = await executeOnce({ input });
+      } catch (execErr) {
+        // runtime/host error
+        results.push({
+          index: i,
+          passed: false,
+          stdout: "",
+          stderr: `Execution error: ${String(execErr.message || execErr)}`,
+          compileOutput: "",
+          timeMs: 0,
+          memoryMB: 0,
+        });
+        continue;
+      }
 
-      const passed = stdout === (t.expected || "").trim();
+      const compileOut = runResp.compile ? (runResp.compile.stdout || runResp.compile.stderr || "") : "";
+      const runOut = runResp.run || {};
+      const stdout = (runOut.stdout || "").toString().replace(/\r\n/g, "\n").trim();
+      const stderr = (runOut.stderr || "").toString().trim();
+
+      // compare trimmed lines by default (you can change compare logic later)
+      const expected = (t.expected || "").toString().replace(/\r\n/g, "\n").trim();
+      const passed = expected === "" ? false : stdout === expected;
+
       if (passed) passedCount++;
 
       results.push({
@@ -84,26 +171,28 @@ export async function runCodeOnJudge({
         passed,
         stdout,
         stderr,
-        timeMs: runResp.data.run.time || 0,
-        memoryMB: runResp.data.run.memory || 0,
+        compileOutput: compileOut ? compileOut.toString().trim() : "",
+        timeMs: runOut.time || 0,
+        memoryMB: runOut.memory || 0,
       });
     }
 
     return {
-      status: passedCount === tests.length ? "success" : "failed",
-      summary: { passedCount, totalCount: tests.length },
+      status: passedCount === effectiveTests.length ? "success" : "failed",
+      summary: { passedCount, totalCount: effectiveTests.length },
       results,
     };
   } catch (err) {
-    console.error("Piston API failed:", err.message);
+    console.error("Piston API failed:", err && err.message ? err.message : err);
     return {
       status: "failed",
-      summary: { passedCount: 0, totalCount: mode === "debug" ? 1 : tests.length },
-      results: (mode === "debug" ? [{}] : tests).map((_, i) => ({
+      summary: { passedCount: 0, totalCount: Array.isArray(tests) ? tests.length : 0 },
+      results: (Array.isArray(tests) && tests.length ? tests : [{}]).map((_, i) => ({
         index: i,
         passed: false,
         stdout: "",
         stderr: "Runner error",
+        compileOutput: "",
         timeMs: 0,
         memoryMB: 0,
       })),

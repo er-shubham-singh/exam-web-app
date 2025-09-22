@@ -156,7 +156,6 @@ socket.join(`exam:${data.studentExamId}`);
     io.emit("alert_admin", { ...data, type: "SCREEN_SHARING" });
   });
 
-
   // ---------------- ADMIN SIDE ----------------
   socket.on("force_submit", async (data, cb) => {
     const student = Object.values(students).find(
@@ -211,8 +210,6 @@ socket.join(`exam:${data.studentExamId}`);
     io.emit("webrtc_candidate", data); // exchange ICE candidates
   });
 
-
-
   // Mentor asks a student to re-send WebRTC offer (after mentor refresh, etc.)
 socket.on("request_offer", ({ email, studentExamId }) => {
   // Prefer room targeting (robust even if socket id changes)
@@ -227,7 +224,6 @@ socket.on("request_offer", ({ email, studentExamId }) => {
     io.to(target.socketId).emit("request_offer", { studentExamId: target.studentExamId });
   }
 });
-
 
     // ---------------- STRICT PROCTORING ----------------
   // Eye direction monitoring

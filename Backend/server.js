@@ -51,7 +51,7 @@ Object.keys(process.env).forEach((key) => {
   if (key.includes("KEY") || key.includes("PASS") || key.includes("SECRET")) {
     displayVal = val ? val.slice(0, 6) + "...(hidden)" : "undefined";
   }
-  console.log(` - ${key} = ${displayVal}`);
+  // console.log(` - ${key} = ${displayVal}`);
 });
 
 const server = http.createServer(app);

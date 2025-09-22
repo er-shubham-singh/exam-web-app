@@ -1,12 +1,21 @@
+// services/paper.service.js
 import mongoose from "mongoose";
-import Paper from "../Modal/paper.model.js";
 import Domain from "../Modal/domain.model.js";
 import QuestionPaper from "../Modal/question.model.js";
+import PaperTemplate from "../Modal/paperTemplate.model.js"; // <-- template model (file: models/paper.model.js)
+import PaperSet from "../Modal/paperSet.model.js";
+import * as paperSetService from "./paperSet.services.js";
 
-const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
+const isValidId = (id) =>  mongoose.Types.ObjectId.isValid(String(id));
+const toObjectId = (id) => new mongoose.Types.ObjectId(String(id));
 
+/**
+ * Recompute totals and type counts for a list of question ObjectIds
+ */
 const recomputeTotals = async (questionIds = []) => {
-  if (!questionIds.length) return { totalMarks: 0, mcqCount: 0, theoryCount: 0, codingCount: 0 };
+  if (!Array.isArray(questionIds) || !questionIds.length) {
+    return { totalMarks: 0, mcqCount: 0, theoryCount: 0, codingCount: 0 };
+  }
 
   const qs = await QuestionPaper.find({ _id: { $in: questionIds } })
     .select("marks type")
@@ -20,7 +29,50 @@ const recomputeTotals = async (questionIds = []) => {
   return { totalMarks, mcqCount, theoryCount, codingCount };
 };
 
-export const createPaperService = async (data) => {
+/**
+ * Build questions payload in the exact shape PaperSet expects:
+ * [{ question: ObjectId, marks?: Number }, ...]
+ * Accepts incoming array items that may be strings, ObjectIds or objects.
+ */
+const buildQuestionsPayload = (items = []) => {
+  const out = [];
+  const seen = new Set();
+
+  for (const item of items || []) {
+    if (!item) continue;
+
+    let idStr = null;
+    let marks = undefined;
+
+    if (item instanceof mongoose.Types.ObjectId) {
+      idStr = String(item);
+    } else if (typeof item === "string" || item instanceof String) {
+      idStr = String(item).trim();
+    } else if (typeof item === "object") {
+      if (item.question) idStr = String(item.question).trim();
+      else if (item._id) idStr = String(item._id).trim();
+      else if (item.id) idStr = String(item.id).trim();
+      if (typeof item.marks !== "undefined") marks = Number(item.marks);
+    }
+
+    if (!idStr || !isValidId(idStr)) continue;
+    if (seen.has(idStr)) continue;
+    seen.add(idStr);
+
+    const obj = { question: toObjectId(idStr) };
+    if (!Number.isNaN(marks)) obj.marks = marks;
+    out.push(obj);
+  }
+
+  return out;
+};
+
+/**
+ * createPaperService
+ * - Creates (or updates existing) PaperTemplate (template)
+ * - Optionally creates a default PaperSet (Set A etc.) using paperSetService.createPaperSet
+ */
+export const createPaperService = async (data = {}) => {
   const {
     title,
     category,
@@ -28,64 +80,134 @@ export const createPaperService = async (data) => {
     description,
     questions = [],
     isPublished = false,
+    createDefaultSet = false,
+    defaultSetLabel = "A",
+    createdBy = null,
   } = data || {};
 
   if (!title) throw new Error("Title is required.");
   if (!category) throw new Error("Category is required.");
   if (!domain || !isValidId(domain)) throw new Error("Valid domain id is required.");
 
-  // snapshot description if missing
+  // fetch domain description if not present
   let desc = description;
   if (!desc) {
     const d = await Domain.findById(domain).select("description").lean();
     if (!d) throw new Error("Domain not found.");
-    desc = d.description;
+    desc = d.description || "";
   }
 
-  // normalize question ids
+  // Normalize incoming questions to ObjectId array for template storage
   const qIds = (questions || [])
-    .filter((id) => isValidId(id))
-    .map((id) => new mongoose.Types.ObjectId(id));
+    .map((x) => {
+      if (!x) return null;
+      if (x instanceof mongoose.Types.ObjectId) return String(x);
+      if (typeof x === "string" || x instanceof String) return String(x).trim();
+      if (typeof x === "object") return String(x._id || x.question || x.id || null).trim();
+      return null;
+    })
+    .filter((id) => id && isValidId(id))
+    .map((id) => toObjectId(id));
 
-  // 🔹 Strict: check if paper already exists for this exact (category + domain)
-// strict existing paper check
-const existing = await Paper.findOne({
-  category: category.trim(),
-  domain: new mongoose.Types.ObjectId(domain),
-});
+  // look for existing template for this category+domain
+  const existing = await PaperTemplate.findOne({
+    category: category.trim(),
+    domain: toObjectId(domain),
+  });
+
+  // improved wrapper to create default set with normalized payload and logs
+  const safeCreateDefaultSet = async (templateId, label, questionsPayload) => {
+    // ensure templateId is ObjectId
+    const paperTemplateId = isValidId(templateId) ? toObjectId(templateId) : templateId;
+
+    // normalize questionsPayload to the exact shape PaperSet expects
+    const normalizedQuestions = buildQuestionsPayload(questionsPayload || []);
+
+    const payload = {
+      paperTemplate: paperTemplateId,
+      paperTemplateId: paperTemplateId,
+      setLabel: String(label || "A"),
+      questions: normalizedQuestions,
+      createdBy,
+    };
+
+    console.log("[createPaperService] CALL -> paperSetService.createPaperSet payload (sanity):", {
+      paperTemplate: String(payload.paperTemplate),
+      setLabel: payload.setLabel,
+      questionsCount: payload.questions.length,
+      firstQuestionsSample: payload.questions.slice(0, 6),
+    });
+
+    return await paperSetService.createPaperSet(payload);
+  };
 
   if (existing) {
-    // merge unique questions only inside this domain
-    const mergedQuestions = Array.from(
-      new Set([...existing.questions.map(String), ...qIds.map(String)])
-    ).map((id) => new mongoose.Types.ObjectId(id));
+    // merge unique questions
+    const merged = Array.from(new Set([...existing.questions.map(String), ...qIds.map(String)])).map((id) =>
+      toObjectId(id)
+    );
 
-    const totals = await recomputeTotals(mergedQuestions);
+    const totals = await recomputeTotals(merged);
 
-    existing.title = title; // overwrite if needed
+    existing.title = title;
     existing.description = desc;
-    existing.questions = mergedQuestions;
+    existing.questions = merged;
     existing.totalMarks = totals.totalMarks;
-    if (typeof isPublished === "boolean") {
-      existing.isPublished = isPublished;
-      if (isPublished) existing.publishedAt = new Date();
-    }
+    existing.isPublished = typeof isPublished === "boolean" ? isPublished : existing.isPublished;
+    if (existing.isPublished) existing.publishedAt = existing.publishedAt || new Date();
 
     await existing.save();
+
+    if (createDefaultSet) {
+      try {
+        const label = String(defaultSetLabel || "A").trim() || "A";
+        const existingSet = await PaperSet.findOne({ paperTemplate: existing._id, setLabel: label }).lean();
+
+        if (!existingSet) {
+          const mergedPayload = buildQuestionsPayload(merged);
+          console.log("[createPaperService] mergedPayload for default set (existing template):", mergedPayload.slice(0, 6));
+          await safeCreateDefaultSet(existing._id, label, mergedPayload);
+          console.log("[createPaperService] default set created for existing template.");
+        } else {
+          console.log("[createPaperService] default set already exists:", {
+            setId: String(existingSet._id),
+            setLabel: existingSet.setLabel,
+          });
+        }
+      } catch (err) {
+        console.warn("[createPaperService] createDefaultSet (existing) failed:", err?.message || err);
+      }
+    }
+
     return existing;
   }
 
-  // otherwise create new paper scoped to that domain
+  // create new template
   const totals = await recomputeTotals(qIds);
-  return await Paper.create({
+  const created = await PaperTemplate.create({
     title,
     category,
-    domain,
+    domain: toObjectId(domain),
     description: desc,
     questions: qIds,
     totalMarks: totals.totalMarks,
     isPublished,
   });
+
+  if (createDefaultSet) {
+    try {
+      const label = String(defaultSetLabel || "A").trim() || "A";
+      const payloadQuestions = buildQuestionsPayload(qIds);
+      console.log("[createPaperService] payloadQuestions for default set (new template):", payloadQuestions.slice(0, 6));
+
+      await safeCreateDefaultSet(created._id, label, payloadQuestions);
+      console.log("[createPaperService] default set created for new template.");
+    } catch (err) {
+      console.warn("[createPaperService] createDefaultSet (new) failed:", err?.message || err);
+    }
+  }
+
+  return created;
 };
 
 export const getAllPapersService = async (query = {}) => {
@@ -102,10 +224,8 @@ export const getAllPapersService = async (query = {}) => {
 
   const filter = {};
   if (category) filter.category = category;
-// in getAllPapersService
-if (domain && isValidId(domain)) {
-  filter.domain = new mongoose.Types.ObjectId(domain);
-}
+  if (domain && isValidId(domain)) filter.domain = new mongoose.Types.ObjectId(domain);
+
   if (search) {
     filter.$or = [
       { title: { $regex: search.trim(), $options: "i" } },
@@ -116,20 +236,19 @@ if (domain && isValidId(domain)) {
   const skip = (Number(page) - 1) * Number(limit);
   const sortObj = { [sort]: order === "asc" ? 1 : -1 };
 
-  let q = Paper.find(filter).sort(sortObj).skip(skip).limit(Number(limit));
+  let q = PaperTemplate.find(filter).sort(sortObj).skip(skip).limit(Number(limit));
 
   if (String(populate) !== "false") {
     q = q
       .populate({ path: "domain", select: "domain category description" })
       .populate({
         path: "questions",
-        select:
-          "type questionText options correctAnswer theoryAnswer marks category domain",
+        select: "type questionText options correctAnswer theoryAnswer marks category domain",
         populate: { path: "domain", select: "domain category" },
       });
   }
 
-  const [items, total] = await Promise.all([q.lean().exec(), Paper.countDocuments(filter)]);
+  const [items, total] = await Promise.all([q.lean().exec(), PaperTemplate.countDocuments(filter)]);
 
   return {
     items,
@@ -141,14 +260,13 @@ if (domain && isValidId(domain)) {
 
 export const getPaperByIdService = async (id, populate = true) => {
   if (!isValidId(id)) throw new Error("Invalid paper id.");
-  let q = Paper.findById(id);
+  let q = PaperTemplate.findById(id);
   if (populate) {
     q = q
       .populate({ path: "domain", select: "domain category description" })
       .populate({
         path: "questions",
-        select:
-          "type questionText options correctAnswer theoryAnswer marks category domain",
+        select: "type questionText options correctAnswer theoryAnswer marks category domain",
         populate: { path: "domain", select: "domain category" },
       });
   }
@@ -168,22 +286,44 @@ export const updatePaperService = async (paperId, payload) => {
     update.description = d.description;
   }
 
+  // normalize questions if provided
+  let normalizedQuestionIds = null;
   if (Array.isArray(update.questions)) {
-    update.questions = update.questions
-      .filter((id) => isValidId(id))
-      .map((id) => new mongoose.Types.ObjectId(id));
-
+    normalizedQuestionIds = update.questions.filter((id) => isValidId(id)).map((id) => new mongoose.Types.ObjectId(id));
+    update.questions = normalizedQuestionIds;
     const totals = await recomputeTotals(update.questions);
     update.totalMarks = totals.totalMarks;
   }
 
-  const saved = await Paper.findByIdAndUpdate(paperId, update, { new: false });
+  const saved = await PaperTemplate.findByIdAndUpdate(paperId, update, { new: true, runValidators: true });
   if (!saved) throw new Error("Paper not found.");
+
+  // Optional: sync the default Set A if requested by caller
+  if (payload && payload.syncDefaultSet) {
+    try {
+      const setA = await PaperSet.findOne({ paperTemplate: saved._id, setLabel: "A" });
+
+      if (setA) {
+        await paperSetService.addQuestionsToSet(setA._id, normalizedQuestionIds || [], { mode: "replace" });
+      } else if (normalizedQuestionIds && normalizedQuestionIds.length) {
+        await paperSetService.createPaperSet({
+          paperTemplateId: saved._id,
+          setLabel: "A",
+          questions: (normalizedQuestionIds || []).map((x) => String(x)),
+          createdBy: payload.updatedBy || null,
+        });
+      }
+    } catch (e) {
+      console.warn("syncDefaultSet failed:", e.message);
+    }
+  }
+
+  return saved;
 };
 
 export const deletePaperService = async (paperId) => {
   if (!isValidId(paperId)) throw new Error("Invalid paper id.");
-  const deleted = await Paper.findByIdAndDelete(paperId);
+  const deleted = await PaperTemplate.findByIdAndDelete(paperId);
   if (!deleted) throw new Error("Paper not found.");
 };
 
@@ -191,20 +331,18 @@ export const togglePublishPaperService = async (paperId, isPublished = true) => 
   if (!isValidId(paperId)) throw new Error("Invalid paper id.");
   const payload = { isPublished };
   if (isPublished) payload.publishedAt = new Date();
-  const updated = await Paper.findByIdAndUpdate(paperId, payload, { new: false });
+  const updated = await PaperTemplate.findByIdAndUpdate(paperId, payload, { new: false });
   if (!updated) throw new Error("Paper not found.");
 };
 
 export const addQuestionsService = async (paperId, ids = []) => {
   if (!isValidId(paperId)) throw new Error("Invalid paper id.");
-  const paper = await Paper.findById(paperId);
+  const paper = await PaperTemplate.findById(paperId);
   if (!paper) throw new Error("Paper not found.");
 
   const append = ids.filter(isValidId).map((x) => String(x));
   const current = paper.questions.map((x) => String(x));
-  const merged = Array.from(new Set([...current, ...append])).map(
-    (x) => new mongoose.Types.ObjectId(x)
-  );
+  const merged = Array.from(new Set([...current, ...append])).map((x) => new mongoose.Types.ObjectId(x));
 
   const totals = await recomputeTotals(merged);
   paper.questions = merged;
@@ -214,7 +352,7 @@ export const addQuestionsService = async (paperId, ids = []) => {
 
 export const removeQuestionsService = async (paperId, ids = []) => {
   if (!isValidId(paperId)) throw new Error("Invalid paper id.");
-  const paper = await Paper.findById(paperId);
+  const paper = await PaperTemplate.findById(paperId);
   if (!paper) throw new Error("Paper not found.");
 
   const removeSet = new Set(ids.filter(isValidId).map(String));
@@ -226,37 +364,67 @@ export const removeQuestionsService = async (paperId, ids = []) => {
   await paper.save();
 };
 
+// helper deterministic assign
+const hashToIndex = (str, max) => {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h % max;
+};
 
-export const getPaperForStudentService = async ({ category, domain }) => {
+export const getPaperForStudentService = async ({ category, domain, studentId = null, assignmentStrategy = "deterministic" }) => {
   if (!category) throw new Error("Category is required");
   if (!domain || !isValidId(domain)) throw new Error("Valid domain id required");
 
-  // normalize category
   const normalizedCategory = category.trim();
 
-  const filter = {
+  // find template (PaperTemplate)
+  const template = await PaperTemplate.findOne({
     category: { $regex: `^${normalizedCategory}$`, $options: "i" },
     domain: new mongoose.Types.ObjectId(domain),
-  };
+  }).lean();
 
-  console.log("🔎 Student paper filter:", filter);
+  if (!template) throw new Error(`No paper template found for category="${normalizedCategory}", domain="${domain}"`);
 
-  const paper = await Paper.findOne(filter)
-    .populate({ path: "domain", select: "domain category description" })
-    .populate({
-      path: "questions",
-      select:
-        "type questionText options correctAnswer theoryAnswer marks category domain",
-      populate: { path: "domain", select: "domain category" },
-    })
-    .lean();
+  // fetch active sets for that template
+  const sets = await PaperSet.find({ paperTemplate: template._id, isActive: true }).lean();
+  if (!sets || !sets.length) throw new Error("No active paper sets available for this template");
 
-  if (!paper) {
-    throw new Error(
-      `No paper found. category="${normalizedCategory}", domain="${domain}"`
-    );
+  let chosenSet = sets[0];
+
+  if (sets.length === 1) {
+    chosenSet = sets[0];
+  } else if (assignmentStrategy === "random") {
+    chosenSet = sets[Math.floor(Math.random() * sets.length)];
+  } else {
+    const key = studentId ? `${String(studentId)}:${String(template._id)}` : `${Date.now()}:${String(template._id)}`;
+    const idx = hashToIndex(key, sets.length);
+    chosenSet = sets[idx];
   }
 
-  return paper;
-};
+  // populate chosen set questions & template fields
+  const populated = await PaperSet.findById(chosenSet._id)
+    .populate({
+      path: "questions.question",
+      select: "type questionText options correctAnswer theoryAnswer marks category domain coding",
+      populate: { path: "domain", select: "domain category" },
+    })
+    .populate({ path: "paperTemplate", select: "title category domain description defaultTimeLimitMin defaultMarksPerQuestion" })
+    .lean();
 
+  if (!populated) throw new Error("Failed to load chosen set");
+
+  return {
+    paperTemplate: populated.paperTemplate,
+    paperSet: {
+      _id: populated._id,
+      setLabel: populated.setLabel,
+      timeLimitMin: populated.timeLimitMin,
+      totalMarks: populated.totalMarks,
+      questions: populated.questions,
+      randomSeed: populated.randomSeed,
+    },
+  };
+};

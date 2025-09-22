@@ -60,7 +60,6 @@ const validateCodingPayload = (coding = {}) => {
   }
 };
 
-
 export const createQuestionService = async (data) => {
   const { domain, questionText, type, coding } = data;
 
@@ -178,11 +177,86 @@ const readStdin = readAllStdin;
     });
   }
 
-  return QuestionPaper.create(payload);
+  // ---------- create the question ----------
+  const created = await QuestionPaper.create(payload);
+
+  // ---------- optional attach logic ----------
+  // Supported payload flags:
+  //  - attachToSetId: "<setId>"                 -> append to that set
+  //  - attachToTemplateId + attachToSetLabel    -> find set by template + label (create if missing) and append
+  //  - attachToTemplateId + createDefaultSetLabel -> create set with that label and append
+  //  - failOnAttach: true                       -> if true, delete created question on attach failure and throw
+
+  const {
+    attachToSetId,
+    attachToTemplateId,
+    attachToSetLabel,
+    createDefaultSetLabel,
+    failOnAttach = false,
+  } = data || {};
+
+  // no-op if nothing asked
+  if (!attachToSetId && !attachToTemplateId) {
+    return created;
+  }
+
+  try {
+    if (attachToSetId && isValidId(attachToSetId)) {
+      // append to existing set
+      await paperSetService.addQuestionsToSet(attachToSetId, [String(created._id)], { mode: "append" });
+    } else if (attachToTemplateId && isValidId(attachToTemplateId)) {
+      if (attachToSetLabel) {
+        // try to find set by template + label
+        const existing = await paperSetService.findSetByTemplateAndLabel(attachToTemplateId, attachToSetLabel);
+        if (existing) {
+          await paperSetService.addQuestionsToSet(existing._id, [String(created._id)], { mode: "append" });
+        } else {
+          await paperSetService.createPaperSet({
+            paperTemplateId: attachToTemplateId,
+            setLabel: attachToSetLabel,
+            questions: [String(created._id)],
+            createdBy: data.createdBy || null,
+          });
+        }
+      } else if (createDefaultSetLabel) {
+        // explicitly create a set with provided label
+        await paperSetService.createPaperSet({
+          paperTemplateId: attachToTemplateId,
+          setLabel: createDefaultSetLabel,
+          questions: [String(created._id)],
+          createdBy: data.createdBy || null,
+        });
+      } else {
+        // if template provided but no label, append to Set "A" if exists, else create "A"
+        const existingA = await paperSetService.findSetByTemplateAndLabel(attachToTemplateId, "A");
+        if (existingA) {
+          await paperSetService.addQuestionsToSet(existingA._id, [String(created._id)], { mode: "append" });
+        } else {
+          await paperSetService.createPaperSet({
+            paperTemplateId: attachToTemplateId,
+            setLabel: "A",
+            questions: [String(created._id)],
+            createdBy: data.createdBy || null,
+          });
+        }
+      }
+    }
+  } catch (attachErr) {
+    // if user wants strict behavior, rollback the created question and surface error
+    console.warn("attachToSet failed:", attachErr.message || attachErr);
+    if (failOnAttach) {
+      try {
+        await QuestionPaper.findByIdAndDelete(created._id);
+      } catch (delErr) {
+        console.error("Failed to delete question after attach failure:", delErr);
+      }
+      throw new Error("Question creation rolled back due to attach failure: " + (attachErr.message || attachErr));
+    }
+    // Non-fatal: return created question but log error (UI can warn)
+  }
+
+  return created;
 };
-
-
-
 
 
 export const getAllQuestionService = async (query = {}) => {
@@ -237,9 +311,6 @@ export const getAllQuestionService = async (query = {}) => {
   };
 };
 
-/**
- * ✅ Get by ID
- */
 export const getQuestionByIdService = async (id, options = {}) => {
   if (!isValidId(id)) return null;
 
@@ -251,59 +322,16 @@ export const getQuestionByIdService = async (id, options = {}) => {
   return q.lean().exec();
 };
 
-// export const updateQuestionService = async (id, updateData = {}, options = {}) => {
-//   if (!isValidId(id)) return null;
-
-//   const update = { ...updateData };
-
-//   const original = await QuestionPaper.findById(id).select("domain");
-//   if (!original) throw new Error("Question not found.");
-
-//   if (update.domain) {
-//     if (!isValidId(update.domain)) throw new Error("Invalid domain id.");
-
-//     const domainDoc = await Domain.findById(update.domain).select("category description");
-//     if (!domainDoc) throw new Error("Invalid domain id.");
-
-//     update.category = domainDoc.category;
-//     update.description = domainDoc.description;
-//     update.domain = domainDoc._id;
-//   } else {
-//     update.domain = original.domain; // fallback to existing domain
-//   }
-
-//   if (update.type === "CODING" || (update.coding && typeof update.coding === "object")) {
-//     validateCodingPayload(update.coding);
-//   }
-
-//   if (update.questionText) {
-//     const duplicate = await checkDuplicate(update.questionText, update.domain, id);
-//     if (duplicate) throw new Error("This question already exists in the selected domain.");
-//     update.questionText = update.questionText.trim();
-//   }
-
-//   const updated = await QuestionPaper.findByIdAndUpdate(id, update, {
-//     new: true,
-//     runValidators: true,
-//   });
-
-//   if (!updated) return null;
-
-//   if (options.populate !== false) {
-//     await updated.populate({ path: "domain", select: "domain category description" });
-//   }
-//   return updated;
-// };
-
-
 export const updateQuestionService = async (id, updateData = {}, options = {}) => {
   if (!isValidId(id)) return null;
 
   const update = { ...updateData };
 
-  const original = await QuestionPaper.findById(id).select("domain coding");
+  // keep a snapshot of the original document for validation + rollback if needed
+  const original = await QuestionPaper.findById(id).lean();
   if (!original) throw new Error("Question not found.");
 
+  // domain handling (same as before)
   if (update.domain) {
     if (!isValidId(update.domain)) throw new Error("Invalid domain id.");
 
@@ -418,7 +446,7 @@ const readStdin = readAllStdin;
       return sc;
     });
   } else {
-    // If update didn't include starterCodes, ensure original starterCodes are preserved and get helper if missing
+    // preserve original starterCodes and ensure helper
     const origStarter = (original.coding && Array.isArray(original.coding.starterCodes)) ? original.coding.starterCodes : [];
     update.coding = update.coding || {};
     update.coding.starterCodes = origStarter.map(sc => {
@@ -438,12 +466,94 @@ const readStdin = readAllStdin;
     });
   }
 
+  // ---------- apply update ----------
   const updated = await QuestionPaper.findByIdAndUpdate(id, update, {
     new: true,
     runValidators: true,
   });
 
   if (!updated) return null;
+
+  // ---------- optional attach/detach logic ----------
+  // Supported updateData flags (same names supported on create):
+  // attachToSetId, detachFromSetId, attachToTemplateId, attachToSetLabel, createDefaultSetLabel, failOnAttach
+  const {
+    attachToSetId,
+    detachFromSetId,
+    attachToTemplateId,
+    attachToSetLabel,
+    createDefaultSetLabel,
+    failOnAttach = false,
+    createdBy = null,
+  } = updateData || {};
+
+  // Helper to attempt rollback (best-effort): restore original doc
+  const rollbackToOriginal = async (reason) => {
+    try {
+      await QuestionPaper.findByIdAndUpdate(id, original, { new: false, runValidators: false });
+    } catch (rbErr) {
+      console.error("Rollback failed:", rbErr);
+    }
+    throw new Error("Attach/Detach failed after update: " + (reason && reason.message ? reason.message : reason));
+  };
+
+  if (attachToSetId || detachFromSetId || attachToTemplateId) {
+    try {
+      // detach first (if requested)
+      if (detachFromSetId && isValidId(detachFromSetId)) {
+        await paperSetService.removeQuestionFromSet(detachFromSetId, id);
+      }
+
+      // attach by set id (preferred)
+      if (attachToSetId && isValidId(attachToSetId)) {
+        await paperSetService.addQuestionsToSet(attachToSetId, [String(id)], { mode: "append" });
+      } else if (attachToTemplateId && isValidId(attachToTemplateId)) {
+        // attach by template + label or create set then attach
+        if (attachToSetLabel) {
+          const existing = await paperSetService.findSetByTemplateAndLabel(attachToTemplateId, attachToSetLabel);
+          if (existing) {
+            await paperSetService.addQuestionsToSet(existing._id, [String(id)], { mode: "append" });
+          } else {
+            await paperSetService.createPaperSet({
+              paperTemplateId: attachToTemplateId,
+              setLabel: attachToSetLabel,
+              questions: [String(id)],
+              createdBy,
+            });
+          }
+        } else if (createDefaultSetLabel) {
+          await paperSetService.createPaperSet({
+            paperTemplateId: attachToTemplateId,
+            setLabel: createDefaultSetLabel,
+            questions: [String(id)],
+            createdBy,
+          });
+        } else {
+          // fallback: attach to Set "A" if exists else create it
+          const existingA = await paperSetService.findSetByTemplateAndLabel(attachToTemplateId, "A");
+          if (existingA) {
+            await paperSetService.addQuestionsToSet(existingA._id, [String(id)], { mode: "append" });
+          } else {
+            await paperSetService.createPaperSet({
+              paperTemplateId: attachToTemplateId,
+              setLabel: "A",
+              questions: [String(id)],
+              createdBy,
+            });
+          }
+        }
+      }
+    } catch (attachErr) {
+      console.warn("attach/detach failed:", attachErr);
+      if (failOnAttach) {
+        // attempt rollback to original state then throw to caller
+        await rollbackToOriginal(attachErr);
+      } else {
+        // non-fatal: log and continue; the question update was saved but attach/detach failed
+        console.warn("Non-fatal: question update saved but attach/detach failed.");
+      }
+    }
+  }
 
   if (options.populate !== false) {
     await updated.populate({ path: "domain", select: "domain category description" });
