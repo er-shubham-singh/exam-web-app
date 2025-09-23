@@ -86,14 +86,34 @@ export const handleCameraOff = (data) => ({
   payload: data,
 });
 
+// actions/exam.actions.js (replace the old fetchStudentPaper)
 export const fetchStudentPaper = ({ category, domainId }) => async (dispatch) => {
   dispatch({ type: FETCH_STUDENT_PAPER_REQUEST });
   try {
     const res = await api.get(
-      `/api/student-paper?category=${encodeURIComponent(category)}&domain=${domainId}`
+      `/api/student-paper?category=${encodeURIComponent(category)}&domain=${encodeURIComponent(domainId)}`
     );
 
-    const paper = res.data.paper || null;
+    // Server returns { success: true, paperTemplate, paperSet } (per your payload)
+    const tpl = res.data?.paperTemplate || null;
+    const set = res.data?.paperSet || null;
+
+    // Build a normalized paper object for the UI
+    const paper = {
+      // prefer template id for template-level identity; fallback to set id
+      _id: tpl?._id || tpl?.id || set?._id || set?.id || null,
+      title: tpl?.title || set?.title || (tpl ? `${tpl.category} • ${new Date().toLocaleDateString()}` : "Paper"),
+      category: tpl?.category || set?.category || category,
+      domain: tpl?.domain || set?.domain || domainId,
+      description: tpl?.description || tpl?.summary || "",
+      // duration in minutes (set.timeLimitMin is what you call timeLimitMin)
+      duration: set?.timeLimitMin ?? tpl?.defaultTimeLimitMin ?? 0,
+      // Flatten questions: if set.questions entries are { question: {...} } use .question, otherwise accept the item
+      // Also make sure each question is a plain object and filter out nulls
+      questions: (set?.questions || []).map((item) => (item && item.question ? item.question : item)).filter(Boolean),
+      // keep raw server payload for debugging if needed
+      _raw: { paperTemplate: tpl, paperSet: set },
+    };
 
     dispatch({
       type: FETCH_STUDENT_PAPER_SUCCESS,
@@ -107,6 +127,7 @@ export const fetchStudentPaper = ({ category, domainId }) => async (dispatch) =>
     throw new Error(msg);
   }
 };
+
 
 
 /* =========================
@@ -129,18 +150,6 @@ export const startExam = ({ student, exam }) => async (dispatch) => {
   }
 };
 
-// Update Answer
-// export const updateAnswer = ({ studentExamId, questionId, answer }) => async (dispatch) => {
-//   try {
-//     await api.post("/api/student/answer", { studentExamId, questionId, answer });
-//     dispatch({
-//       type: UPDATE_ANSWER,
-//       payload: { questionId, answer },
-//     });
-//   } catch (err) {
-//     console.error("❌ Failed to save answer:", err.response?.data || err.message);
-//   }
-// };
 
 // actions.js
 export const updateAnswer = ({ studentExamId, questionId, answer }) => async (dispatch) => {

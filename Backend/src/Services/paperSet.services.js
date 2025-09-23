@@ -171,7 +171,13 @@ export const getPaperSet = async (setId, { populateQuestions = true } = {}) => {
 
 export const listSetsForTemplate = async (templateId) => {
   if (!isValidId(templateId)) throw new Error("Invalid template id");
-  return PaperSet.find({ paperTemplate: templateId }).lean();
+  return PaperSet.find({ paperTemplate: templateId })
+    .populate({
+      path: "questions.question",
+      model: "QuestionPapers",
+      select: "type questionText options correctAnswer theoryAnswer marks category domain"
+    })
+    .lean();
 };
 
 
@@ -179,70 +185,90 @@ export const addQuestionsToSetService = async (setId, questionIds = [], options 
   if (!isValidId(setId)) throw new Error("Invalid set id");
   if (!Array.isArray(questionIds) || !questionIds.length) throw new Error("questionIds required");
 
-  const set = await PaperSet.findById(setId);
+  const set = await PaperSet.findById(setId).populate("paperTemplate");
   if (!set) throw new Error("Set not found");
 
-  // Normalize incoming to string ids and validate
+  // get template to validate against
+  const template = set.paperTemplate;
+  if (!template) throw new Error("Paper template not found for set");
+
+  // Normalize incoming
   const incoming = Array.from(new Set(questionIds.filter(isValidId).map(String)));
   if (!incoming.length) throw new Error("No valid questionIds provided");
 
-  // Helper to convert a value to ObjectId
   const toId = (id) => new mongoose.Types.ObjectId(String(id));
 
-  // Determine current storage shape:
-  // - subdoc shape: { question: ObjectId, ... }
-  // - or array-of-ids shape: [ ObjectId, ... ] (or strings)
+  // Fetch questions for validation
+  const qDocs = await QuestionPaper.find({ _id: { $in: incoming } }).lean();
+  if (!qDocs.length) throw new Error("No valid questions found");
+
+  // Validate domain + category
+  const allowed = [];
+  const rejected = [];
+  qDocs.forEach((q) => {
+    if (String(q.domain) !== String(template.domain)) {
+      rejected.push({ id: q._id, reason: "domain mismatch" });
+      return;
+    }
+    if (String(q.category).toLowerCase() !== String(template.category).toLowerCase()) {
+      rejected.push({ id: q._id, reason: "category mismatch" });
+      return;
+    }
+    allowed.push(String(q._id));
+  });
+
+  if (!allowed.length) {
+    throw new Error(
+      `No valid questions to add. Invalid: ${JSON.stringify(rejected)}`
+    );
+  }
+
+  // Ensure questions stored as subdocs
   const first = (set.questions || [])[0];
   const storedAsSubdocs = !!(first && typeof first === "object" && first.question);
 
-  // Normalize existing questions into subdoc array if needed
   if (!storedAsSubdocs) {
-    // transform existing array-of-ids into subdocs if needed
-    const existingIds = (set.questions || []).map(q => {
-      if (!q) return null;
-      if (typeof q === "object" && q.question) return String(q.question);
-      return String(q);
-    }).filter(Boolean);
+    const existingIds = (set.questions || [])
+      .map((q) => {
+        if (!q) return null;
+        if (typeof q === "object" && q.question) return String(q.question);
+        return String(q);
+      })
+      .filter(Boolean);
 
-    // convert to subdoc objects
-    set.questions = existingIds.map(id => ({ question: toId(id), addedAt: new Date() }));
+    set.questions = existingIds.map((id) => ({
+      question: toId(id),
+      addedAt: new Date(),
+    }));
   }
 
-  // Now set.questions is guaranteed to be subdoc array
-  const existingSet = new Set((set.questions || []).map(q => String(q.question)));
-  const toAddIds = incoming.filter(id => !existingSet.has(id));
-
-  if (!toAddIds.length) {
-    // nothing new to add — return populated set
-    return PaperSet.findById(setId)
-      .populate({ path: "questions.question", select: "questionText type marks" })
-      .lean();
-  }
-
-  // Build subdoc entries for toAddIds
-  const newDocs = toAddIds.map(id => ({ question: toId(id), addedAt: new Date() }));
+  // Add only new, valid ones
+  const existingSet = new Set((set.questions || []).map((q) => String(q.question)));
+  const toAddIds = allowed.filter((id) => !existingSet.has(id));
+  const newDocs = toAddIds.map((id) => ({ question: toId(id), addedAt: new Date() }));
   set.questions.push(...newDocs);
 
-  // Optionally compute/update totalMarks (safe): sum marks of referenced questions
-  // We will gather question ids and query QuestionPaper for marks
+  // Recompute total marks
   try {
-    const qIds = (set.questions || []).map(q => String(q.question));
+    const qIds = (set.questions || []).map((q) => String(q.question));
     const uniqQIds = Array.from(new Set(qIds));
     const qs = await QuestionPaper.find({ _id: { $in: uniqQIds } }).select("marks").lean();
-    const totalMarks = qs.reduce((s, q) => s + (q.marks || 0), 0);
-    set.totalMarks = totalMarks;
+    set.totalMarks = qs.reduce((s, q) => s + (q.marks || 0), 0);
   } catch (err) {
-    // non-fatal — log and continue
-    console.warn("Failed to recompute totalMarks after adding questions:", err);
+    console.warn("Failed to recompute totalMarks:", err);
   }
 
   await set.save();
 
-  // Return populated set (questions.question populated)
   return PaperSet.findById(setId)
-    .populate({ path: "questions.question", select: "questionText type marks" })
+    .populate({
+      path: "questions.question",
+      select: "questionText type marks category domain",
+      populate: { path: "domain", select: "domain category" },
+    })
     .lean();
 };
+
 
 
 export const removeQuestionFromSet = async (setId, questionId) => {

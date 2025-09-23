@@ -236,8 +236,8 @@ export const getAllPapersService = async (query = {}) => {
   const skip = (Number(page) - 1) * Number(limit);
   const sortObj = { [sort]: order === "asc" ? 1 : -1 };
 
+  // load templates (with questions populated if requested)
   let q = PaperTemplate.find(filter).sort(sortObj).skip(skip).limit(Number(limit));
-
   if (String(populate) !== "false") {
     q = q
       .populate({ path: "domain", select: "domain category description" })
@@ -249,6 +249,35 @@ export const getAllPapersService = async (query = {}) => {
   }
 
   const [items, total] = await Promise.all([q.lean().exec(), PaperTemplate.countDocuments(filter)]);
+
+  // If we returned any templates, fetch sets for them and attach
+  if (items && items.length) {
+    const templateIds = items.map((t) => String(t._id)).filter(Boolean);
+    if (templateIds.length) {
+      const sets = await PaperSet.find({ paperTemplate: { $in: templateIds } })
+        .populate({
+          path: "questions.question",
+          model: "QuestionPapers",
+          select: "type questionText options correctAnswer theoryAnswer marks category domain coding",
+          populate: { path: "domain", select: "domain category" },
+        })
+        .lean()
+        .exec();
+
+      const setsByTemplate = sets.reduce((acc, s) => {
+        const tpl = String(s.paperTemplate);
+        acc[tpl] = acc[tpl] || [];
+        acc[tpl].push(s);
+        return acc;
+      }, {});
+
+      // attach sets array (possibly empty) to each template
+      for (const it of items) {
+        const key = String(it._id);
+        it.sets = setsByTemplate[key] || [];
+      }
+    }
+  }
 
   return {
     items,
@@ -374,7 +403,14 @@ const hashToIndex = (str, max) => {
   return h % max;
 };
 
-export const getPaperForStudentService = async ({ category, domain, studentId = null, assignmentStrategy = "deterministic" }) => {
+export const getPaperForStudentService = async ({
+  category,
+  domain,
+  setLabel = null,
+  studentId = null,
+  assignmentStrategy = "deterministic",
+  allowFallback = true, // when setLabel specified but no sets with that label exist, fallback to all sets
+}) => {
   if (!category) throw new Error("Category is required");
   if (!domain || !isValidId(domain)) throw new Error("Valid domain id required");
 
@@ -388,12 +424,31 @@ export const getPaperForStudentService = async ({ category, domain, studentId = 
 
   if (!template) throw new Error(`No paper template found for category="${normalizedCategory}", domain="${domain}"`);
 
-  // fetch active sets for that template
-  const sets = await PaperSet.find({ paperTemplate: template._id, isActive: true }).lean();
-  if (!sets || !sets.length) throw new Error("No active paper sets available for this template");
+  // If setLabel provided, first try to fetch sets with that label
+  let sets = [];
+  if (setLabel) {
+    sets = await PaperSet.find({
+      paperTemplate: template._id,
+      isActive: true,
+      setLabel: setLabel,
+    }).lean();
+  }
 
-  let chosenSet = sets[0];
+  // If we didn't find any sets for the requested label, optionally fallback to all active sets
+  if ((!sets || !sets.length) && allowFallback) {
+    sets = await PaperSet.find({ paperTemplate: template._id, isActive: true }).lean();
+  }
 
+  if (!sets || !sets.length) {
+    // If caller provided setLabel and we don't want fallback, show a specific error
+    if (setLabel && !allowFallback) {
+      throw new Error(`No active sets found for template with setLabel="${setLabel}"`);
+    }
+    throw new Error("No active paper sets available for this template");
+  }
+
+  // Choose set (same logic as before)
+  let chosenSet;
   if (sets.length === 1) {
     chosenSet = sets[0];
   } else if (assignmentStrategy === "random") {

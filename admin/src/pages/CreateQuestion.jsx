@@ -102,17 +102,21 @@ useEffect(() => {
     [domains, currentDomainId]
   );
 
+// inside CreateQuestion.jsx
 useEffect(() => {
   (async () => {
-    if (!category) {
+    // require both category and domain to avoid showing unrelated templates
+    if (!category || !currentDomainId) {
       setTemplates([]);
       setSelectedTemplateId("");
       return;
     }
     try {
       setTemplatesLoading(true);
-      const res = await dispatch(fetchTemplates({ category }));
+      // <-- pass domain too
+      const res = await dispatch(fetchTemplates({ category, domain: currentDomainId }));
       console.log("fetchTemplates dispatch result:", res);
+
       // normalize common shapes:
       const list =
         Array.isArray(res) ? res :
@@ -129,9 +133,11 @@ useEffect(() => {
       setTemplatesLoading(false);
     }
   })();
-}, [dispatch, category]);
+}, [dispatch, category, currentDomainId]); // include currentDomainId
 
 
+
+// CreateQuestion.jsx
 useEffect(() => {
   (async () => {
     if (!selectedTemplateId) {
@@ -141,9 +147,8 @@ useEffect(() => {
     }
     try {
       setSetsLoading(true);
-      const s = await dispatch(fetchSetsForTemplate(selectedTemplateId));
-      console.log("fetchSetsForTemplate result:", s);
-      const list = Array.isArray(s) ? s : s?.sets || s?.data || [];
+      const sres = await dispatch(fetchSetsForTemplate(selectedTemplateId));
+      const list = Array.isArray(sres) ? sres : sres?.sets || sres?.items || [];
       setSets(list);
     } catch (e) {
       console.warn("Failed to load sets", e);
@@ -153,6 +158,8 @@ useEffect(() => {
     }
   })();
 }, [dispatch, selectedTemplateId]);
+
+
 
 
 
@@ -336,51 +343,51 @@ useEffect(() => {
 
 // Replace your handleAddToSet with this version
 
+// inside your handleAddToSet in CreateQuestion.jsx
+// CreateQuestion.jsx handleAddToSet (simplified)
 const handleAddToSet = async (questionOrIds, overrideSetId) => {
   const ids = Array.isArray(questionOrIds) ? questionOrIds : [questionOrIds];
   const setId = overrideSetId || selectedSetId;
   if (!setId) return toast.error("Choose a template and set first.");
 
-  // find target set from local sets (server is source of truth)
-  const targetSet = sets.find(s => String(s._id) === String(setId));
-  const existingIds = new Set((targetSet?.questions || []).map(q => String(q.question ?? q._id ?? q)));
-
-  // filter out ones already in set to avoid duplicate call
-  const toAdd = ids.filter(id => !existingIds.has(String(id)));
-  if (!toAdd.length) {
-    return toast.info("Selected question(s) already in the set.");
-  }
-
   try {
-    const updatedSet = await dispatch(addQuestionsToSet(setId, toAdd));
-    // update local sets fast (if updatedSet provided)
+    const updatedSet = await dispatch(addQuestionsToSet(setId, ids));
+
+    // optimistic local update
     if (updatedSet && (updatedSet._id || updatedSet.id)) {
-      setSets(prev => {
-        const idKey = updatedSet._id || updatedSet.id;
-        const found = prev.some(p => String(p._id || p.id) === String(idKey));
-        if (found) return prev.map(p => (String(p._id || p.id) === String(idKey) ? updatedSet : p));
-        return [updatedSet, ...prev];
-      });
+      setSets(prev =>
+        prev.map(s =>
+          String(s._id) === String(updatedSet._id || updatedSet.id) ? updatedSet : s
+        )
+      );
     }
 
-    // refresh questions and sets from server to ensure membership flags are accurate
-    if (category && currentDomainId) {
-      await dispatch(fetchQuestion({ category, domain: currentDomainId }));
-    }
+    // refresh sets
     if (selectedTemplateId) {
       const sres = await dispatch(fetchSetsForTemplate(selectedTemplateId));
       const list = Array.isArray(sres) ? sres : sres?.sets || sres?.items || [];
       setSets(list);
     }
 
-    toast.success(`Added ${toAdd.length} question(s) to set.`);
-    return updatedSet;
+    // refresh questions
+    if (category && currentDomainId) {
+      await dispatch(fetchQuestion({ category, domain: currentDomainId }));
+    }
+
+    toast.success("Added to set");
   } catch (err) {
-    console.error("add to set failed", err);
-    toast.error("Failed to add question to set.");
-    throw err;
+    console.error("Add to set error:", err);
+    const msg =
+      err?.response?.data?.message ||
+      err?.message ||
+      "Failed to add question to set.";
+    toast.error(msg);
   }
 };
+
+
+
+
 
 const handleCreateSetForTemplate = async (templateId, payload = {}) => {
   // ensure we send the exact shape backend expects

@@ -48,19 +48,20 @@ export const createSet = (templateId, payload) => async (dispatch) => {
 
 
 // FETCH sets for a template (admin)
+// Redux/paperSet/action.js
 export const fetchSetsForTemplate = (templateId) => async (dispatch) => {
   dispatch({ type: FETCH_SETS_REQUEST });
   try {
     const res = await api.get(`/api/templates/${templateId}/sets`);
-    const sets = res.data?.sets || res.data;
-    dispatch({ type: FETCH_SETS_SUCCESS, payload: sets });
-    return sets;
+    dispatch({ type: FETCH_SETS_SUCCESS, payload: res.data });
+    // return sets so caller can use result
+    return res.data?.sets || res.data || [];
   } catch (err) {
-    const msg = getErr(err, "Failed to fetch sets");
-    dispatch({ type: FETCH_SETS_FAIL, payload: msg });
-    return null;
+    dispatch({ type: FETCH_SETS_FAIL, payload: err.response?.data?.message || err.message || "Failed to fetch sets" });
+    throw err;
   }
 };
+
 
 // GET set by id (populated) - used by exam runner
 export const getSetById = (setId) => async (dispatch) => {
@@ -112,16 +113,23 @@ export const addQuestionsToSet = (setId, questionIds) => async (dispatch) => {
   dispatch({ type: ADD_QUESTIONS_TO_SET_REQUEST });
   try {
     const res = await api.patch(`/api/sets/${setId}/questions`, { questionIds });
-    // normalize: server might return { success:true, set: {...} } or the set directly
-    const payload = res.data?.set || res.data?.data || res.data;
-    dispatch({ type: ADD_QUESTIONS_TO_SET_SUCCESS, payload });
-    return payload; // important: returns the updated set to caller
+
+    // Accept server shapes: { set }, { updated }, { message }, or { success: true, ... }
+    const updatedSet =
+      res.data?.set ||
+      res.data?.updated ||
+      res.data?.updatedSet ||
+      (res.data?.message && typeof res.data?.message === "object" ? res.data.message : null) ||
+      res.data;
+
+    dispatch({ type: ADD_QUESTIONS_TO_SET_SUCCESS, payload: updatedSet });
+    return updatedSet;
   } catch (err) {
-    const errMsg = err?.response?.data?.message || err.message || "Failed to add questions";
-    dispatch({ type: ADD_QUESTIONS_TO_SET_FAIL, payload: errMsg });
+    dispatch({ type: ADD_QUESTIONS_TO_SET_FAIL, payload: getErr(err) });
     throw err;
   }
 };
+
 
 
 // REMOVE a question from set (route: DELETE /sets/:id/questions/:questionId)

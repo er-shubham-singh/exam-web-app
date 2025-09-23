@@ -21,19 +21,14 @@ const generateRollNumber = async () => {
 };
 
 // ---------------- REGISTER ----------------
+// registration part of your service file
 export const registerUserService = async (data) => {
-  const { name, email, category, domain } = data;
+  const { name, email, category } = data;
 
-  if (!name || !email || !category || !domain) {
+  if (!name || !email || !category) {
     throw new Error("All fields are required.");
   }
   if (!isValidEmail(email)) throw new Error("Invalid email format.");
-
-  if (!mongoose.Types.ObjectId.isValid(domain)) {
-    throw new Error("Invalid domain id.");
-  }
-  const domainDoc = await Domain.findById(domain);
-  if (!domainDoc) throw new Error("Domain not found.");
 
   const existing = await User.findOne({ email });
   if (existing) throw new Error("User already exists with this email.");
@@ -44,7 +39,6 @@ export const registerUserService = async (data) => {
     name,
     email,
     category,
-    domain,
     rollNumber,
   });
 
@@ -57,62 +51,108 @@ export const registerUserService = async (data) => {
       subject: "Your Exam Roll Number",
       html: `
         <h2>Hello ${name},</h2>
-        <p>You have successfully registered for <b>${domainDoc.domain}</b> (${category}).</p>
+        <p>You have successfully registered for the exam under category <b>${category}</b>.</p>
         <p><b>Your Roll Number: ${rollNumber}</b></p>
-        <p>Please keep this safe, it will be required for the exam.</p>
+        <p>Please keep this safe, it will be required to login and take the exam.</p>
       `,
     });
 
-    await RollLog.create({ user: user._id, email, rollNumber, status: "SENT" });
+    try {
+      // domain is intentionally omitted here
+      await RollLog.create({
+        user: user._id,
+        email,
+        rollNumber,
+        status: "SENT",
+      });
+    } catch (logErr) {
+      console.error("RollLog (SENT) create failed:", logErr.message);
+      // do not throw — registration already succeeded
+    }
   } catch (err) {
     console.error("❌ Email send failed:", err.message);
     emailStatus = "FAILED";
-    await RollLog.create({ user: user._id, email, rollNumber, status: "FAILED" });
+    try {
+      await RollLog.create({
+        user: user._id,
+        email,
+        rollNumber,
+        status: "FAILED",
+      });
+    } catch (logErr) {
+      console.error("RollLog (FAILED) create failed:", logErr.message);
+    }
   }
 
   return { user, emailStatus };
 };
 
-// ---------------- LOGIN ----------------
-export const loginService = async (data) => {
-  const { email, rollNo } = data;
 
-  if (!email || !rollNo) {
+
+// login part of your service file
+export const loginService = async (data) => {
+  const { email, rollNo, category, domain } = data;
+
+  if (!email || !rollNo || !category || !domain) {
     throw new Error("All fields are required.");
   }
   if (!isValidEmail(email)) {
     throw new Error("Invalid email format.");
   }
 
-  // Find student
-  const user = await User.findOne({ email, rollNumber: rollNo })
-    .populate("domain", "domain category _id");
+  if (!mongoose.Types.ObjectId.isValid(domain)) {
+    throw new Error("Invalid domain id.");
+  }
 
+  const domainDoc = await Domain.findById(domain);
+  if (!domainDoc) throw new Error("Domain not found.");
+
+  // Find student by email + rollNumber
+  const user = await User.findOne({ email, rollNumber: rollNo });
   if (!user) throw new Error("Invalid credentials");
 
-  // Prepare payload for JWT
-  const payload = {
-    id: user._id,
-    email: user.email,
-    role: "student", // fixed role for this login
-  };
+  // if user.category is an id/string adjust comparison accordingly
+  if (String(user.category) !== String(category)) {
+    throw new Error("Category mismatch with registered data.");
+  }
 
+  // Prevent multiple attempts for same user + domain
+  const existingAttempt = await RollLog.findOne({
+    user: user._id,
+    domain: domain,
+    status: { $in: ["STARTED", "COMPLETED"] },
+  });
+
+  if (existingAttempt) {
+    throw new Error("You have already started or completed the exam for this domain.");
+  }
+
+  const payload = { id: user._id, email: user.email, role: "student" };
   const token = generateToken(payload);
 
-return {
-  message: "Login successful",
-  token,
-  user: {   // ✅ correct key is user
-    id: user._id,
-    name: user.name,
+  // create STARTED attempt with domain
+  await RollLog.create({
+    user: user._id,
     email: user.email,
-    category: user.category,
-    domain: user.domain.domain,
-    domainId: user.domain._id,
     rollNumber: user.rollNumber,
-    role: "student",
-  },
-};
+    domain: domain,
+    status: "STARTED",
+    startedAt: new Date(),
+  });
 
+  return {
+    message: "Login successful",
+    token,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      category: user.category,
+      domain: domainDoc.domain,
+      domainId: domainDoc._id,
+      rollNumber: user.rollNumber,
+      role: "student",
+    },
+  };
 };
 

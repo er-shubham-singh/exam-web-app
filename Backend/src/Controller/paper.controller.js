@@ -92,14 +92,16 @@ export const removeQuestions = async (req, res) => {
   }
 };
 
+// controllers/paper.controller.js (small change to forward setLabel)
 export const getPaperForStudent = async (req, res) => {
   try {
-    const { category, domain, domainId } = req.query;
+    const { category, domain, domainId, setLabel } = req.query;
     const payload = {
       category,
       domain: domain || domainId,
-      studentId: req.user?._id, // used by deterministic assignment
-      assignmentStrategy: req.query.assignmentStrategy || "deterministic"
+      setLabel,
+      studentId: req.user?._id,
+      assignmentStrategy: req.query.assignmentStrategy || "deterministic",
     };
     const result = await paperService.getPaperForStudentService(payload);
     return res.status(200).json({ success: true, ...result });
@@ -107,6 +109,7 @@ export const getPaperForStudent = async (req, res) => {
     return res.status(404).json({ success: false, message: err.message });
   }
 };
+
 
 export const createTemplate = async (req, res) => {
   try {

@@ -26,7 +26,7 @@ const AnswerSubSchema = new mongoose.Schema(
 const studentExamSchema = new mongoose.Schema(
   {
     student: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    exam: { type: mongoose.Schema.Types.ObjectId, ref: "Paper", required: true },
+    exam: { type: mongoose.Schema.Types.ObjectId, ref: "PaperTemplate", required: true },
     answers: {
       type: [AnswerSubSchema],
       default: [],

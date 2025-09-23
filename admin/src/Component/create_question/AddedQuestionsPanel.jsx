@@ -1,4 +1,4 @@
-// AddedQuestionsPanel.jsx (replace your file contents with this)
+// AddedQuestionsPanel.jsx
 import React, { useMemo, useState, useEffect } from "react";
 import { ToastContainer, toast } from "react-toastify";
 
@@ -15,139 +15,157 @@ export default function AddedQuestionsPanel({
   handleAddToSet,
   onCreateSetClick
 }) {
+  const toIdStr = (v) => {
+    if (v === null || typeof v === "undefined") return "";
+    if (typeof v === "object") return String(v._id || v.id || "");
+    return String(v || "");
+  };
+  const normalizedSets = useMemo(() => (sets || []).map((s) => {
+    const sid = toIdStr(s._id || s.id);
+    const label = s.setLabel || s.label || s.name || "Set";
+    const qlist = Array.isArray(s.questions) ? s.questions : [];
+    const normalizedQuestions = qlist.map(qe => {
+      if (!qe) return null;
+      if (typeof qe === "string") return { questionId: toIdStr(qe), raw: qe };
+      const qVal = qe.question ?? qe._id ?? qe.id ?? null;
+      return qVal ? { questionId: toIdStr(qVal), raw: qe } : null;
+    }).filter(Boolean);
+    return { _id: sid, setLabel: label, questions: normalizedQuestions, raw: s };
+  }), [sets]);
+
+  // Build quick lookup: questionId -> Set<setId>
+  const questionToSetsMap = useMemo(() => {
+    const map = {};
+    normalizedSets.forEach(s => {
+      const sid = s._id;
+      (s.questions || []).forEach(qe => {
+        const qid = qe.questionId;
+        if (!qid) return;
+        map[qid] = map[qid] || new Set();
+        map[qid].add(String(sid));
+      });
+    });
+    return map;
+  }, [normalizedSets]);
+
+  // domain filtered questions
+  const domainId = toIdStr(selectedDomain?._id);
+  const domainQuestions = useMemo(() => {
+    if (!domainId) return [];
+    return (questions || []).filter(q => toIdStr(q?.domain?._id || q?.domain) === domainId);
+  }, [questions, domainId]);
+
   const [activeSet, setActiveSet] = useState("__unassigned__");
-  const [loadingMap, setLoadingMap] = useState({}); // id -> boolean
-  const [addedMap, setAddedMap] = useState({}); // optimistic local adds (questionId -> setId)
+
+  // optimistic local added marks (questionId -> setId) while waiting for server refresh
+  const [addedMap, setAddedMap] = useState({}); // questionId -> setId
+  // loading state per question id while API is running
+  const [loadingMap, setLoadingMap] = useState({});
 
   useEffect(() => {
-    // clear optimistic flags for questions that server now shows as in a set
     setAddedMap(prev => {
       const next = { ...prev };
       for (const qId of Object.keys(prev)) {
-        const inAny = sets.some(s => (s.questions || []).some(qEntry => {
-          const qid = String(qEntry.question ?? qEntry._id ?? qEntry);
-          return qid === qId;
-        }));
-        if (inAny) delete next[qId];
+        if (questionToSetsMap[qId] && questionToSetsMap[qId].size > 0) {
+          delete next[qId];
+        }
       }
       return next;
     });
-  }, [sets, questions]);
+  }, [questionToSetsMap]);
 
-  // Build map: questionId -> Set of setIds
-  const questionToSetsMap = useMemo(() => {
-    const map = {};
-    (sets || []).forEach(s => {
-      const sid = s._id || s.id;
-      if (!sid) return;
-      (s.questions || []).forEach(qEntry => {
-        const qId = String(qEntry.question ?? qEntry._id ?? qEntry);
-        if (!qId) return;
-        map[qId] = map[qId] || new Set();
-        map[qId].add(String(sid));
-      });
-    });
-    return map;
-  }, [sets]);
-
+  // membership checker: considers server state and optimistic local state
   const isQuestionInSet = (questionId, setId) => {
-    if (!questionId || !setId) return false;
-    return !!(questionToSetsMap[questionId] && questionToSetsMap[questionId].has(String(setId)));
+    const qid = toIdStr(questionId);
+    const sid = toIdStr(setId);
+    if (!qid || !sid) return false;
+    // optimistic: we locally marked this question as added to this set
+    if (addedMap[qid] && String(addedMap[qid]) === String(sid)) return true;
+    const s = questionToSetsMap[qid];
+    return !!(s && s.has(String(sid)));
   };
 
-  // domain questions
-  const domainId = selectedDomain?._id;
-  const domainQuestions = useMemo(
-    () => (questions || []).filter(q => String(q?.domain?._id || q?.domain) === String(domainId)),
-    [questions, domainId]
-  );
+  // tabs: Unassigned + each set
+  const tabs = [{ id: "__unassigned__", label: "Unassigned" }, ...normalizedSets.map(s => ({ id: s._id, label: s.setLabel }))];
 
-  // counts
+  // counts (unassigned and per set) - consider optimistic additions
   const countsBySet = useMemo(() => {
     const map = {};
-    for (const s of sets) {
+    normalizedSets.forEach(s => {
       map[s._id] = domainQuestions.filter(q => isQuestionInSet(q._id || q.id, s._id)).length;
-    }
+    });
     map.__unassigned__ = domainQuestions.filter(q => {
-      const qId = q._id || q.id;
-      if (!qId) return false;
-      return !(questionToSetsMap[qId] && questionToSetsMap[qId].size > 0);
+      const qid = toIdStr(q._id || q.id);
+      if (!qid) return false;
+      const present = questionToSetsMap[qid] && questionToSetsMap[qid].size > 0;
+      const optimistic = !!addedMap[qid];
+      return !present && !optimistic;
     }).length;
     return map;
-  }, [sets, domainQuestions, questionToSetsMap]);
+  }, [normalizedSets, domainQuestions, questionToSetsMap, addedMap]);
 
-  const tabs = [{ id: "__unassigned__", label: "Unassigned" }, ...sets.map(s => ({ id: s._id, label: s.setLabel || s.label || "Set" }))];
-
+  // filtered questions shown for the current tab
   const filtered = useMemo(() => {
     if (activeSet === "__unassigned__") {
       return domainQuestions.filter(q => {
-        const qId = q._id || q.id;
-        return !(questionToSetsMap[qId] && questionToSetsMap[qId].size > 0);
+        const qid = toIdStr(q._id || q.id);
+        if (!qid) return false;
+        const present = questionToSetsMap[qid] && questionToSetsMap[qid].size > 0;
+        const optimistic = !!addedMap[qid];
+        return !present && !optimistic;
       });
     }
-    return domainQuestions.filter(q => {
-      const qId = q._id || q.id;
-      return isQuestionInSet(qId, activeSet);
-    });
-  }, [activeSet, domainQuestions, questionToSetsMap]);
+    return domainQuestions.filter(q => isQuestionInSet(q._id || q.id, activeSet));
+  }, [activeSet, domainQuestions, questionToSetsMap, addedMap]);
 
+  // user clicked a tab in this panel
   const selectTab = (id) => {
     setActiveSet(id);
-    setSelectedSetId && setSelectedSetId(id === "__unassigned__" ? "" : id);
   };
 
-  // Add to set handler used in panel (wraps parent handleAddToSet to manage loading/optimistic map)
   const onAddToSetClick = async (questionOrIds, overrideSetId = null) => {
     const ids = Array.isArray(questionOrIds) ? questionOrIds : [questionOrIds];
-    const setId = overrideSetId || (activeSet === "__unassigned__" ? selectedSetId : activeSet);
-    if (!setId) {
-      toast.error("Choose a set first.");
+    const targetSetId = overrideSetId || (activeSet === "__unassigned__" ? (selectedSetId || null) : activeSet);
+    if (!targetSetId) {
+      toast.error("Choose a set first (click a set tab or select a set in the Template & Sets panel).");
       return;
     }
 
-    // filter out already-in-set ids using server SOT map
-    const toAdd = ids.filter(id => !isQuestionInSet(id, setId));
+    const toAdd = ids.filter(id => !isQuestionInSet(id, targetSetId));
     if (!toAdd.length) {
       toast.info("Selected question(s) already in the set.");
       return;
     }
 
-    // set loading
+    // set loading flags
     setLoadingMap(prev => {
       const next = { ...prev };
-      toAdd.forEach(id => next[id] = true);
+      toAdd.forEach(id => next[toIdStr(id)] = true);
       return next;
     });
 
     try {
-      await (handleAddToSet ? handleAddToSet(toAdd, setId) : Promise.reject(new Error("No handler")));
-      // optimistic mark (will be cleared when sets prop updates)
+      if (!handleAddToSet) throw new Error("No handler provided to add questions");
+      await handleAddToSet(toAdd, targetSetId);
+
+      // optimistic mark until parent refreshes sets
       setAddedMap(prev => {
         const next = { ...prev };
-        toAdd.forEach(id => next[id] = setId);
+        toAdd.forEach(id => next[toIdStr(id)] = toIdStr(targetSetId));
         return next;
       });
+
       toast.success(`Added ${toAdd.length} question(s) to set.`);
     } catch (err) {
-      console.error("Add to set failed", err);
-      toast.error("Failed to add question(s) to set.");
+      console.error("add failed", err);
+      toast.error(err?.message || "Failed to add question(s) to set.");
     } finally {
       setLoadingMap(prev => {
         const next = { ...prev };
-        toAdd.forEach(id => delete next[id]);
+        toAdd.forEach(id => delete next[toIdStr(id)]);
         return next;
       });
     }
-  };
-
-  const handleStartEdit = (q) => {
-    // clear local optimistic map for this question so Add button can re-enable
-    setAddedMap(prev => {
-      const next = { ...prev };
-      delete next[q._id || q.id];
-      return next;
-    });
-    startEdit && startEdit(q);
   };
 
   return (
@@ -181,12 +199,14 @@ export default function AddedQuestionsPanel({
 
             <button
               onClick={() => {
-                if (activeSet === "__unassigned__") { toast.info("Select a set tab to add all questions."); return; }
+                const targetSetId = activeSet === "__unassigned__" ? (selectedSetId || null) : activeSet;
+                if (!targetSetId) { toast.info("Select a set (tab or left selector) to add all questions."); return; }
                 const ids = filtered.map(q => q._id || q.id).filter(Boolean);
-                if (!ids.length) return toast.info("No questions to add.");
-                onAddToSetClick(ids, activeSet);
+                if (!ids.length) { toast.info("No questions to add."); return; }
+                onAddToSetClick(ids, targetSetId);
               }}
               className={`px-3 py-2 rounded-md ${activeSet === "__unassigned__" ? "bg-gray-700 text-gray-300" : "bg-green-600 hover:bg-green-500 text-white"}`}
+              title={activeSet === "__unassigned__" ? "Select a set to add all" : "Add all visible questions to this set"}
             >
               Add all to set
             </button>
@@ -202,11 +222,12 @@ export default function AddedQuestionsPanel({
           ) : (
             <ul className="space-y-3">
               {filtered.map(q => {
-                const qId = q._id || q.id;
+                const qId = toIdStr(q._id || q.id);
+                const targetSetId = activeSet === "__unassigned__" ? (selectedSetId || null) : activeSet;
                 const alreadyInActive = activeSet !== "__unassigned__" && isQuestionInSet(qId, activeSet);
-                const optimistic = !!addedMap[qId] && (addedMap[qId] === (activeSet === "__unassigned__" ? selectedSetId : activeSet));
+                const optimistic = !!(addedMap[qId] && (addedMap[qId] === (activeSet === "__unassigned__" ? toIdStr(selectedSetId) : toIdStr(activeSet))));
                 const loading = !!loadingMap[qId];
-                const disableAdd = alreadyInActive || optimistic || loading;
+                const disableAdd = loading || optimistic || (targetSetId ? isQuestionInSet(qId, targetSetId) : false);
 
                 return (
                   <li key={qId} className="bg-gray-900 p-3 rounded-md flex items-start justify-between">
@@ -216,15 +237,15 @@ export default function AddedQuestionsPanel({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <button onClick={() => handleStartEdit(q)} className="px-3 py-1 rounded-md bg-yellow-600 hover:bg-yellow-500 text-white">Edit</button>
+                      <button onClick={() => { setAddedMap(prev => { const n = { ...prev }; delete n[qId]; return n; }); startEdit && startEdit(q); }} className="px-3 py-1 rounded-md bg-yellow-600 hover:bg-yellow-500 text-white">Edit</button>
 
                       <button
                         onClick={() => onAddToSetClick(qId, activeSet !== "__unassigned__" ? activeSet : null)}
                         className={`px-3 py-1 rounded-md ${disableAdd ? "bg-gray-600 text-gray-200 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-500 text-white"}`}
                         disabled={disableAdd}
-                        title={disableAdd ? (alreadyInActive ? "Already in this set" : "Added — edit to re-enable") : "Add to set"}
+                        title={!targetSetId ? "Choose a set first (left panel) or click a set tab" : (disableAdd ? "Already in this set" : "Add to set")}
                       >
-                        {loading ? "..." : (alreadyInActive ? "Added" : optimistic ? "Added" : "Add to set")}
+                        {loading ? "..." : (disableAdd ? "Added" : "Add to set")}
                       </button>
 
                       <button onClick={() => { if (confirm("Delete this question?")) removeQuestion && removeQuestion(qId); }} className="px-3 py-1 rounded-md bg-red-600 hover:bg-red-500 text-white">Delete</button>

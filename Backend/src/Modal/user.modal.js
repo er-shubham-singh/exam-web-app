@@ -27,12 +27,6 @@ const userSchema = new Schema(
       enum: ["Technical", "Non-Technical"],
       required: [true, "Category is required"],
     },
-
-    domain: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Domain", // linking with your Domain model
-      required: [true, "Domain is required"],
-    },
 rollNumber: {
   type: String,
   unique: true,

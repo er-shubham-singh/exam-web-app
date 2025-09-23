@@ -26,7 +26,7 @@ const router = Router();
 /* Template (Paper) routes */
 router.post("/papers", createPaper);
 router.put("/papers/:id", updatePaper);
-router.get("/papers", getPapers);                // ?category=&domain=&page=&limit=
+router.get("/papers", getPapers);                
 router.get("/papers/:id", getPaperById);
 router.delete("/papers/:id", deletePaper);
 router.patch("/papers/:id/publish", togglePublishPaper);
