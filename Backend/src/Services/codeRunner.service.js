@@ -1,26 +1,6 @@
 // services/codeRunner.service.js
 import axios from "axios";
 
-/**
- * Run code using Piston API (https://emkc.org/api/v2/piston)
- * Supports: javascript, python, java, c, cpp
- *
- * Options:
- *  - language: string ("javascript","python","java","c","cpp")
- *  - code: source code string
- *  - tests: array of { input, expected, score, isPublic } (optional)
- *  - timeLimitMs: execution timeout (ms)
- *  - stdin: manual stdin (string) - forwarded entirely (read-all-stdin)
- *  - mode: "evaluation" | "debug"
- *
- * Returns a consistent response:
- *  {
- *    status: "success" | "failed" | "debug",
- *    summary: { passedCount, totalCount },
- *    results: [{ index, passed, stdout, stderr, compileOutput?, timeMs, memoryMB }],
- *    stdout, stderr, compileOutput?
- *  }
- */
 
 const LANGUAGE_MAP = {
   javascript: { piston: "javascript", filename: "main.js" },
@@ -155,26 +135,56 @@ export async function runCodeOnJudge({
         continue;
       }
 
-      const compileOut = runResp.compile ? (runResp.compile.stdout || runResp.compile.stderr || "") : "";
-      const runOut = runResp.run || {};
-      const stdout = (runOut.stdout || "").toString().replace(/\r\n/g, "\n").trim();
-      const stderr = (runOut.stderr || "").toString().trim();
+        const compileOut = runResp.compile ? (runResp.compile.stdout || runResp.compile.stderr || "") : "";
+  const runOut = runResp.run || {};
+  const stdout = (runOut.stdout || "").toString().replace(/\r\n/g, "\n").trim();
+  const stderr = (runOut.stderr || "").toString().trim();
 
       // compare trimmed lines by default (you can change compare logic later)
-      const expected = (t.expected || "").toString().replace(/\r\n/g, "\n").trim();
-      const passed = expected === "" ? false : stdout === expected;
+function normalizeOutput(str) {
+  return (str == null ? "" : String(str))
+    .replace(/\r\n/g, "\n")
+    .trim()
+    .replace(/\s+/g, " ");
+}
 
-      if (passed) passedCount++;
+const expectedRaw =
+  // choose the first non-empty of many likely keys
+  (() => {
+    if (t == null) return "";
+    const tryKeys = ["expected", "expectedOutput", "output", "expected_stdout", "expectedOutputRaw", "stdout"];
+    for (const k of tryKeys) {
+      if (Object.prototype.hasOwnProperty.call(t, k) && t[k] !== null && typeof t[k] !== "undefined" && String(t[k]).trim() !== "") {
+        return t[k];
+      }
+    }
+    // also support older shape where test might be { expectedLines: [...] }
+    if (Array.isArray(t.expectedLines) && t.expectedLines.length) {
+      return t.expectedLines.join("\n");
+    }
+    return "";
+  })();
+  const expectedNormalized = normalizeOutput(expectedRaw);
+const gotNormalized = normalizeOutput(stdout);
+const CASE_INSENSITIVE = false; // set true if you want "Html" == "html"
+const expectedForCompare = CASE_INSENSITIVE ? expectedNormalized.toLowerCase() : expectedNormalized;
+const gotForCompare = CASE_INSENSITIVE ? gotNormalized.toLowerCase() : gotNormalized;
 
-      results.push({
-        index: i,
-        passed,
-        stdout,
-        stderr,
-        compileOutput: compileOut ? compileOut.toString().trim() : "",
-        timeMs: runOut.time || 0,
-        memoryMB: runOut.memory || 0,
-      });
+const passed = expectedForCompare !== "" && expectedForCompare === gotForCompare;
+if (passed) passedCount++;
+
+results.push({
+  index: i,
+  passed,
+  stdout,
+  stderr,
+  compileOutput: compileOut ? String(compileOut).trim() : "",
+  expectedRaw,            // raw value from test case (helps debug missing key)
+  expectedNormalized,
+  gotNormalized,
+  timeMs: runOut.time || 0,
+  memoryMB: runOut.memory || 0,
+});
     }
 
     return {

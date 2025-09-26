@@ -7,6 +7,7 @@ import ExamPage from './Pages/users/ExamPage'
 import Home from './Pages/Home'
 import UserAuthPage from './Pages/users/UserAuthPage'
 import ResultPage from './Pages/ResultPage'
+import Precheck from './Pages/users/Precheck'
 
 function App() {
   const [count, setCount] = useState(0)
@@ -16,6 +17,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/user" element={<UserAuthPage />} />
+        <Route path="/precheck" element={<Precheck /> } />
         <Route path="/exam" element={<ExamPage />} /> {/* ✅ fixed */}
         <Route path="/student/result" element={<ResultPage /> } />
         <Route path="/auth/login" element={<UserAuthPage isLoginDefault={true} />} />

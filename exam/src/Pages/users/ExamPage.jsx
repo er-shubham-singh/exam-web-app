@@ -160,31 +160,31 @@ const normalizedPaper = React.useMemo(() => {
   }, [timeLeft]);
 
   const handleSubmit = async () => {
-    // if (!studentExamId) {
-    //   alert("Missing student exam ID");
-    //   return;
-    // }
+    if (!studentExamId) {
+      alert("Missing student exam ID");
+      return;
+    }
 
-    // try {
-    //   const result = await dispatch(
-    //     submitExam({ studentExamId }) // ✅ new API expects studentExamId
-    //   );
+    try {
+      const result = await dispatch(
+        submitExam({ studentExamId }) // ✅ new API expects studentExamId
+      );
 
-    //   socket.emit("submit_exam", {
-    //     email: user.email,
-    //     studentExamId,
-    //   });
+      socket.emit("submit_exam", {
+        email: user.email,
+        studentExamId,
+      });
 
-    //   toast.success("Exam submitted successfully.");
-    //   // lock user so they cannot rejoin
-    //   lockedRef.current = true;
-    //   localStorage.setItem("exam_locked", "true");
-    //   // small delay so the toast is visible, then go Home
-    //   setTimeout(() => navigate("/"), 800);
-    // } catch (err) {
-    //   console.error("❌ Submission failed:", err);
-    //   toast.error("Submission failed. Please try again.");
-    // }
+      toast.success("Exam submitted successfully.");
+      // lock user so they cannot rejoin
+      lockedRef.current = true;
+      localStorage.setItem("exam_locked", "true");
+      // small delay so the toast is visible, then go Home
+      setTimeout(() => navigate("/"), 800);
+    } catch (err) {
+      console.error("❌ Submission failed:", err);
+      toast.error("Submission failed. Please try again.");
+    }
   };
 
   const formatTime = (secs) => {
@@ -420,173 +420,14 @@ const tabLists = {
 const currentTabList = tabLists[activeTab] || [];
 const currentQuestion = currentTabList[currentQuestionIndex] || null;
 
-  /* ---------------- UI ---------------- */
-  // return (
-  //   <div className="min-h-screen bg-slate-900 text-white p-6">
-  //     {showDebugOverlay && (
-  //       <div
-  //         className="fixed right-4 top-14 z-50 w-full max-w-[540px] max-h-[85vh] overflow-auto
-  //              bg-slate-800/95 border border-red-700 rounded-lg shadow-xl p-3 text-sm text-slate-100
-  //              break-words whitespace-pre-wrap"
-  //         style={{ backdropFilter: "blur(4px)" }}
-  //         role="dialog"
-  //         aria-modal="false"
-  //       >
-  //         <div className="flex items-center justify-between mb-2">
-  //           <div className="font-semibold text-white">Run / Debug Output</div>
-  //           <div className="flex items-center gap-2">
-  //             <button
-  //               onClick={() => {
-  //                 setShowDebugOverlay(
-  //                   false
-  //                 ); /* optionally clear debugText: setDebugText('') */
-  //               }}
-  //               className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
-  //             >
-  //               Close
-  //             </button>
-  //           </div>
-  //         </div>
-
-  //         <div className="max-h-[72vh] overflow-auto">
-  //           <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-200">
-  //             {debugText}
-  //           </pre>
-  //         </div>
-  //       </div>
-  //     )}
-
-  //     <ToastContainer position="top-right" pauseOnFocusLoss={false} />
-  //     <HeaderPanel
-  //       user={user}
-  //       timeLeft={timeLeft}
-  //       formatTime={formatTime}
-  //       toggleMic={toggleMic}
-  //       localAudioEnabled={localAudioEnabled}
-  //       setAlertLog={setAlertLog}
-  //       alertCountsRef={alertCountsRef}
-  //     />
-
-  //     {loading && <p>Loading paper...</p>}
-  //     {error && <p className="text-red-400">{error}</p>}
-  //     {!loading && paper && (
-  //       <div className="bg-slate-800 p-6 rounded-lg shadow-lg">
-  //         <h3 className="text-lg font-bold mb-4">{paper.title}</h3>
-  //         <CameraAndDetection
-  //           studentExamId={studentExamId}
-  //           user={user}
-  //           dispatch={dispatch}
-  //           navigate={navigate}
-  //           setAlertLog={setAlertLog}
-  //           alertCountsRef={alertCountsRef}
-  //           lockedRef={lockedRef}
-  //         />
-  //         {paper.questions.map((q, i) => (
-  //           <div key={q._id} className="mb-4">
-  //             <p className="font-semibold mb-2">
-  //               {i + 1}. {q.questionText}
-  //             </p>
-
-  //             {/* MCQ */}
-  //             {(q.type === "MCQ" || q.options?.length > 0) &&
-  //               q.options?.map((opt, idx) => {
-  //                 const letter = String.fromCharCode(65 + idx);
-  //                 return (
-  //                   <label key={idx} className="block">
-  //                     <input
-  //                       type="radio"
-  //                       name={`q${i}`}
-  //                       value={letter}
-  //                       checked={savedAnswers[q._id] === letter}
-  //                       onChange={() => handleMCQChange(q._id, letter)}
-  //                     />{" "}
-  //                     {letter}. {opt}
-  //                   </label>
-  //                 );
-  //               })}
-
-  //             {/* Theory */}
-  //             {q.type === "THEORY" && (
-  //               <textarea
-  //                 className="w-full bg-slate-700 p-2 rounded"
-  //                 placeholder="Write your answer..."
-  //                 value={savedAnswers[q._id] || ""}
-  //                 onChange={(e) => handleTheoryChange(q._id, e.target.value)}
-  //                 onBlur={() => handleTheoryBlur(q._id)}
-  //               />
-  //             )}
-
-  //             {q.type === "CODING" && (
-  //               <CodingCard
-  //                 q={q}
-  //                 codingState={codingState}
-  //                 setCodingState={setCodingState}
-  //                 codingAttempts={codingAttempts}
-  //                 codingLoading={codingLoading}
-  //                 dispatch={dispatch}
-  //                 studentExamId={studentExamId}
-  //                 setDebugText={setDebugText}
-  //                 setShowDebugOverlay={setShowDebugOverlay}
-  //               />
-  //             )}
-  //           </div>
-  //         ))}
-  //       </div>
-  //     )}
-  //     <div className="mt-6 flex justify-between items-start">
-  //       <div className="w-1/3 bg-slate-800 p-4 rounded">
-  //         <h4 className="font-bold mb-2">Alert Log (recent)</h4>
-  //         <div className="max-h-40 overflow-auto">
-  //           {alertLog.length === 0 && (
-  //             <p className="text-slate-400">No alerts</p>
-  //           )}
-  //           {alertLog.map((a, idx) => (
-  //             <div
-  //               key={idx}
-  //               className="text-sm mb-1 border-b border-slate-700 pb-1"
-  //             >
-  //               <div className="font-semibold">{a.type}</div>
-  //               <div className="text-xs text-slate-300">{a.issue}</div>
-  //               <div className="text-xs text-slate-500">
-  //                 {new Date(a.timestamp).toLocaleString()}
-  //               </div>
-  //             </div>
-  //           ))}
-  //         </div>
-  //       </div>
-
-  //       <div className="flex flex-col gap-4">
-  //         <button
-  //           onClick={handleSubmit}
-  //           className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold"
-  //           disabled={!studentExamId || loading}
-  //         >
-  //           {loading ? "Submitting..." : "Submit Exam"}
-  //         </button>
-
-  //         <div className="bg-slate-800 p-3 rounded">
-  //           <div className="font-semibold">Alert counts</div>
-  //           <pre className="text-xs mt-2">
-  //             {JSON.stringify(alertCountsRef.current, null, 2)}
-  //           </pre>
-  //         </div>
-  //       </div>
-  //     </div>
-  //     <LeaveExamModal
-  //       open={leaveOpen}
-  //       onStay={stayHere}
-  //       onLeave={confirmLeave}
-  //     />
-  //   </div>
-  // );
-
 return (
   <div className="min-h-screen bg-slate-900 text-white p-6">
     <ToastContainer position="top-right" pauseOnFocusLoss={false} />
 
     <div className="max-w-[1400px] mx-auto grid grid-cols-12 gap-6">
-      {/* LEFT: Student info + camera */}
+      {/* LEFT: Student info, timer, buttons */}
       <aside className="col-span-3 bg-slate-800 rounded-lg p-4 space-y-4 sticky top-4 h-fit">
+        {/* Student Info */}
         <div className="flex items-center gap-3">
           <div className="w-14 h-14 rounded-full bg-slate-700 flex items-center justify-center text-xl font-bold">
             {user?.name?.[0] || "U"}
@@ -608,25 +449,6 @@ return (
           <div className="text-xs text-gray-400 mb-1">Timer</div>
           <div className="text-2xl font-semibold bg-black/20 px-3 py-2 rounded text-center">
             {timeLeft === null ? "-" : formatTime(timeLeft)}
-          </div>
-        </div>
-
-        <div className="mt-3">
-          <div className="text-xs text-gray-400 mb-1">Camera</div>
-
-          {/* camera container ensures visible video (no clipping) */}
-          <div className="bg-black/30 rounded overflow-visible w-full h-36 flex items-center justify-center border border-slate-700">
-            <div className="w-full h-full">
-              <CameraAndDetection
-                studentExamId={studentExamId}
-                user={user}
-                dispatch={dispatch}
-                navigate={navigate}
-                setAlertLog={setAlertLog}
-                alertCountsRef={alertCountsRef}
-                lockedRef={lockedRef}
-              />
-            </div>
           </div>
         </div>
 
@@ -653,7 +475,7 @@ return (
         </div>
       </aside>
 
-      {/* CENTER: Question canvas */}
+      {/* CENTER: Question canvas (UNCHANGED) */}
       <main className="col-span-6">
         <div className="bg-slate-800 p-6 rounded-lg shadow-lg space-y-4">
           <div className="flex items-start justify-between">
@@ -663,7 +485,6 @@ return (
                 {normalizedPaper?.category} {normalizedPaper?.domain ? `• ${typeof normalizedPaper.domain === "object" ? normalizedPaper.domain.domain : normalizedPaper.domain}` : ""}
               </div>
             </div>
-
             <div className="text-sm text-gray-300 text-right">
               <div className="text-xs">Question</div>
               <div className="text-2xl font-semibold">
@@ -767,9 +588,45 @@ return (
         </div>
       </main>
 
-      {/* RIGHT: Tabbed navigator / question palette */}
+      {/* RIGHT: camera, then profile/tabs/palette */}
       <aside className="col-span-3">
         <div className="bg-slate-800 rounded-lg p-4 sticky top-4 space-y-4">
+          {/* Camera block moved here */}
+          <div>
+            <div className="text-xs text-gray-400 mb-1">Camera</div>
+            <div className="bg-black/30 rounded overflow-visible w-full h-36 flex items-center justify-center border border-slate-700">
+              <div className="w-full h-full">
+                <CameraAndDetection
+                  studentExamId={studentExamId}
+                  user={user}
+                  dispatch={dispatch}
+                  navigate={navigate}
+                  setAlertLog={setAlertLog}
+                  alertCountsRef={alertCountsRef}
+                  lockedRef={lockedRef}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Tabs, question grid, legend, and user info remain here */}
+          {/* User Profile */}
+          <div className="flex items-center gap-3 mb-4 p-3 bg-slate-700 rounded-lg">
+            <div className="w-14 h-14 rounded-full bg-slate-900 flex items-center justify-center text-xl font-bold">
+              {user?.name?.[0] || "U"}
+            </div>
+            <div>
+              <div className="text-sm text-gray-300">Student</div>
+              <div className="font-semibold text-white">{user?.name || "Unknown"}</div>
+              <div className="text-xs text-gray-400">{user?.email}</div>
+              <div className="mt-1 text-xs text-gray-400 space-y-0.5">
+                <div><span className="text-xs text-gray-400">Roll:</span> {user?.rollNumber || "—"}</div>
+                <div><span className="text-xs text-gray-400">Category:</span> {user?.category || "—"}</div>
+                <div><span className="text-xs text-gray-400">Domain:</span> {user?.domainName || user?.domain || "—"}</div>
+              </div>
+            </div>
+          </div>
+
           {/* Tabs */}
           <div className="flex gap-2">
             {["MCQ", "THEORY", "CODING"].map((t) => (
@@ -832,6 +689,7 @@ return (
     <LeaveExamModal open={leaveOpen} onStay={stayHere} onLeave={confirmLeave} />
   </div>
 );
+
 };
 
 export default ExamPage;

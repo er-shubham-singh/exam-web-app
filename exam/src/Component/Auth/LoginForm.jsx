@@ -36,7 +36,7 @@ if(form.category){
       toast.success(res.message || "✅ Logged in successfully!");
 
       // ✅ Navigate to exam page after login
-      navigate("/exam");
+      navigate("/precheck", {state:{loginResult:res,form}});
     } catch (err) {
       toast.error(err.message || "❌ Login failed. Please try again.");
     }

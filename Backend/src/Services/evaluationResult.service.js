@@ -293,71 +293,105 @@ else if (qType === "THEORY") {
 
 
     // --- CODING ---
-    else if (qType === "CODING") {
-      codingTotal++;
-      const studentAnswer = a.answer || {};
-      const code = studentAnswer.code || "";
-      const language =
-        studentAnswer.language ||
-        q.coding?.defaultLanguage ||
-        (q.coding?.allowedLanguages && q.coding.allowedLanguages[0]);
+// --- CODING (replace existing block) ---
+else if (qType === "CODING") {
+  codingTotal++;
+  const studentAnswer = a.answer || {};
+  const code = studentAnswer.code || "";
+  const language =
+    studentAnswer.language ||
+    q.coding?.defaultLanguage ||
+    (q.coding?.allowedLanguages && q.coding.allowedLanguages[0]);
 
-      const tests = (q.coding && Array.isArray(q.coding.testCases)) ? q.coding.testCases : [];
+  const tests = (q.coding && Array.isArray(q.coding.testCases)) ? q.coding.testCases : [];
 
-      let judgeResp = null;
-      if (tests.length > 0) {
-        judgeResp = await runCodeOnJudge({ language, code, tests, timeLimitMs: q.coding?.timeLimitMs || 2000 });
-      }
+  let judgeResp = null;
+  if (tests.length > 0) {
+    judgeResp = await runCodeOnJudge({ language, code, tests, timeLimitMs: q.coding?.timeLimitMs || 2000 });
+  }
 
-      let finalResp;
-      if (judgeResp && judgeResp.results) {
-        finalResp = judgeResp;
-      } else {
-        finalResp = simpleLocalEvaluate({ code, language, tests, compareMode: q.coding?.compareMode || "trimmed" });
-      }
+  let finalResp;
+  if (judgeResp && judgeResp.results) {
+    finalResp = judgeResp;
+  } else {
+    finalResp = simpleLocalEvaluate({ code, language, tests, compareMode: q.coding?.compareMode || "trimmed" });
+  }
 
-      const totalTests = Array.isArray(tests) ? tests.length : finalResp.summary?.totalCount || 0;
-      const passedCount = finalResp.summary?.passedCount ?? 0;
+  const totalTests = Array.isArray(tests) ? tests.length : finalResp.summary?.totalCount || 0;
+  const passedCount = finalResp.summary?.passedCount ?? 0;
 
-      let marksObtained = 0;
-      if (Array.isArray(tests) && tests.length && tests[0] && typeof tests[0].score !== "undefined") {
-        const byIndex = new Map();
-        (finalResp.results || []).forEach((r) => byIndex.set(r.index, r));
-        for (let idx = 0; idx < tests.length; idx++) {
-          const tc = tests[idx];
-          const res = byIndex.get(idx);
-          if (res && res.passed) marksObtained += (tc.score || 1);
-        }
-      } else {
-        marksObtained = totalTests ? (base.maxMarks * (passedCount / totalTests)) : 0;
-      }
+  // ------------------- scoring -------------------
+  let marksObtained = 0;
 
-      base.marksAwarded = Math.round((marksObtained + Number.EPSILON) * 100) / 100;
-      codingScore += base.marksAwarded;
+  // detect if tests have per-test 'score' property (legacy weighted tests)
+  const testsHaveScores = Array.isArray(tests) && tests.length && typeof tests[0]?.score !== "undefined";
 
-      base.isCoding = true;
-      base.codeLanguage = language;
-      base.codeSubmitted = code;
-      base.codingResult = {
-        passedCount,
-        totalCount: totalTests,
-        details: Array.isArray(finalResp.results)
-          ? finalResp.results.map((r) => ({
-              testIndex: r.index,
-              passed: !!r.passed,
-              timeMs: r.timeMs,
-              memoryMB: r.memoryMB,
-              stdout: r.stdout,
-              stderr: r.stderr,
-            }))
-          : [],
-      };
+  if (testsHaveScores) {
+    // total weight (sum of all test scores as defined in DB)
+    const totalScoreWeight = tests.reduce((s, tc) => s + (Number(tc.score) || 0), 0);
 
-      console.info(`[Eval][CODING] passed=${passedCount}/${totalTests} awarded=${base.marksAwarded}/${base.maxMarks}`);
-      if (base.marksAwarded < base.maxMarks) {
-        base.remarks = base.remarks || "Some test cases failed. Check output and constraints.";
+    // map results by index so we can check which tests passed
+    const resultByIndex = new Map();
+    (finalResp.results || []).forEach((r) => {
+      // r.index might be string or number, normalize to number
+      const idx = typeof r.index === "number" ? r.index : Number(r.index);
+      resultByIndex.set(idx, r);
+    });
+
+    // sum weights for passed tests
+    let passedWeight = 0;
+    for (let idx = 0; idx < tests.length; idx++) {
+      const tc = tests[idx];
+      const res = resultByIndex.get(idx);
+      if (res && res.passed) {
+        passedWeight += (Number(tc.score) || 0);
       }
     }
+
+    if (totalScoreWeight > 0) {
+      // scale passedWeight to question's max marks
+      marksObtained = (passedWeight / totalScoreWeight) * (base.maxMarks || 0);
+    } else {
+      // fallback to simple proportion of tests (should be rare)
+      marksObtained = totalTests ? (base.maxMarks * (passedCount / totalTests)) : 0;
+    }
+  } else {
+    // no per-test weights -> simple proportional scoring
+    marksObtained = totalTests ? (base.maxMarks * (passedCount / totalTests)) : 0;
+  }
+
+  // round to 2 decimal places
+  base.marksAwarded = Math.round((marksObtained + Number.EPSILON) * 100) / 100;
+  codingScore += base.marksAwarded;
+  // ----------------- end scoring ------------------
+
+  base.isCoding = true;
+  base.codeLanguage = language;
+  base.codeSubmitted = code;
+  base.codingResult = {
+    passedCount,
+    totalCount: totalTests,
+    details: Array.isArray(finalResp.results)
+      ? finalResp.results.map((r) => ({
+          testIndex: typeof r.index === "number" ? r.index : Number(r.index),
+          passed: !!r.passed,
+          timeMs: r.timeMs ?? r.time ?? 0,
+          memoryMB: r.memoryMB ?? r.memory ?? 0,
+          stdout: r.stdout ?? "",
+          stderr: r.stderr ?? "",
+        }))
+      : [],
+  };
+
+  console.info(`[Eval][CODING][judgeResp] qId=${q._id} studentExam=${studentExamId} summary=${JSON.stringify(judgeResp?.summary)}`);
+  if (process.env.DEBUG_EVAL === "true") console.debug(`[Eval][CODING][judgeResp-full] ${JSON.stringify(judgeResp)}`);
+
+  console.info(`[Eval][CODING] passed=${passedCount}/${totalTests} awarded=${base.marksAwarded}/${base.maxMarks}`);
+  if (base.marksAwarded < base.maxMarks) {
+    base.remarks = base.remarks || "Some test cases failed. Check output and constraints.";
+  }
+}
+
 
     // push feedback and continue
     feedback.push(base);

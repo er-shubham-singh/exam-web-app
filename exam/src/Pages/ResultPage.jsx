@@ -170,14 +170,28 @@ export default function ResultPage() {
     return resultsList.find((r) => String(r.studentExamId) === String(selectedExamId)) || null;
   }, [selectedResult, selectedExamId, resultsList]);
 
-  const summary = useMemo(() => {
-    if (!displayResult) return null;
-    const totMarks = displayResult.exam?.totalMarks ?? 0;
-    const score = displayResult.scores?.totalScore ?? 0;
-    const percent = calcPercent(score, totMarks);
-    const grade = gradeFromPercent(percent);
-    return { totMarks, score, percent, grade };
-  }, [displayResult]);
+const summary = useMemo(() => {
+  if (!displayResult) return null;
+
+  // Prefer explicit exam.totalMarks if > 0, otherwise sum questionFeedback.maxMarks
+  const examTotalRaw = displayResult.exam?.totalMarks;
+  let totMarks = typeof examTotalRaw === "number" && examTotalRaw > 0
+    ? examTotalRaw
+    : null;
+
+  if (!totMarks) {
+    const qf = Array.isArray(displayResult.questionFeedback) ? displayResult.questionFeedback : [];
+    const sum = qf.reduce((s, q) => s + (Number(q.maxMarks) || 0), 0);
+    totMarks = sum || 0;
+  }
+
+  const score = Number(displayResult.scores?.totalScore ?? 0);
+  const percent = totMarks ? Math.round((score / totMarks) * 100) : 0;
+  const grade = gradeFromPercent(percent);
+
+  return { totMarks, score, percent, grade };
+}, [displayResult]);
+
 
   const getFeedbackByQid = (qid) => {
     if (!displayResult?.questionFeedback) return null;
