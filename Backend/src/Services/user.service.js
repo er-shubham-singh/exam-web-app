@@ -22,70 +22,76 @@ const generateRollNumber = async () => {
 
 // ---------------- REGISTER ----------------
 // registration part of your service file
+// service
 export const registerUserService = async (data) => {
   const { name, email, category } = data;
-
-  if (!name || !email || !category) {
-    throw new Error("All fields are required.");
-  }
+  if (!name || !email || !category) throw new Error("All fields are required.");
   if (!isValidEmail(email)) throw new Error("Invalid email format.");
 
   const existing = await User.findOne({ email });
   if (existing) throw new Error("User already exists with this email.");
 
   const rollNumber = await generateRollNumber();
-
-  const user = await User.create({
-    name,
-    email,
-    category,
-    rollNumber,
-  });
+  const user = await User.create({ name, email, category, rollNumber });
 
   let emailStatus = "SENT";
+  let messageId = null;
 
   try {
-    await transporter.sendMail({
-      from: `"Exam Portal" <${process.env.SMTP_USER}>`,
+    const fromEmail = process.env.BREVO_FROM_EMAIL?.trim();
+    const fromName  = process.env.BREVO_FROM_NAME?.trim() || 'Exam Portal';
+    const replyTo   = process.env.REPLY_TO_EMAIL?.trim() || fromEmail;
+
+    if (!fromEmail || !fromEmail.includes('@')) {
+      throw new Error('BREVO_FROM_EMAIL must be a valid email and verified in Brevo');
+    }
+
+    const info = await transporter.sendMail({
+      from: `${fromName} <${fromEmail}>`,       // header From (verified)
       to: email,
+      replyTo,                                  // human inbox
       subject: "Your Exam Roll Number",
+      text: `Hello ${name},
+
+You have successfully registered for the exam under category ${category}.
+Your Roll Number: ${rollNumber}
+
+Please keep this safe; it will be required to login and take the exam.`,
       html: `
         <h2>Hello ${name},</h2>
         <p>You have successfully registered for the exam under category <b>${category}</b>.</p>
         <p><b>Your Roll Number: ${rollNumber}</b></p>
-        <p>Please keep this safe, it will be required to login and take the exam.</p>
+        <p>Please keep this safe; it will be required to login and take the exam.</p>
       `,
+      // **CRITICAL**: envelope must not be empty and should match a valid email
+      envelope: {
+        from: fromEmail,   // <-- no typo; must be same verified sender/domain
+        to: email,
+      },
+      headers: {
+        'X-Mailin-Tag': 'exam-roll',
+        'X-Mailin-Custom': JSON.stringify({ feature: 'registration' }),
+      },
     });
 
-    try {
-      // domain is intentionally omitted here
-      await RollLog.create({
-        user: user._id,
-        email,
-        rollNumber,
-        status: "SENT",
-      });
-    } catch (logErr) {
-      console.error("RollLog (SENT) create failed:", logErr.message);
-      // do not throw — registration already succeeded
-    }
+    messageId = info?.messageId || null;
+    await RollLog.create({ user: user._id, email, rollNumber, status: "SENT", messageId });
   } catch (err) {
-    console.error("❌ Email send failed:", err.message);
     emailStatus = "FAILED";
-    try {
-      await RollLog.create({
-        user: user._id,
-        email,
-        rollNumber,
-        status: "FAILED",
-      });
-    } catch (logErr) {
-      console.error("RollLog (FAILED) create failed:", logErr.message);
-    }
+    await RollLog.create({
+      user: user._id,
+      email,
+      rollNumber,
+      status: "FAILED",
+      messageId,
+      error: err?.message?.slice(0, 500),
+    });
   }
 
   return { user, emailStatus };
 };
+
+
 
 
 

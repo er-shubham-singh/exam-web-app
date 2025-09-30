@@ -58,29 +58,6 @@ function simpleLocalEvaluate({ code, language, tests = [], compareMode = "trimme
   return { results, summary: { passedCount: 0, totalCount: tests.length } };
 }
 
-// export async function evaluateTheoryWithModel(studentAnswer, modelAnswer, maxMarks = 5) {
-//   const modelUrl = process.env.GEMINI_API_URL;
-//   if (!modelUrl) {
-//     console.warn("GEMINI_API_URL not configured — falling back to 0 for theory evaluation.");
-//     return 0;
-//   }
-
-//   try {
-//     const payload = { studentAnswer, modelAnswer, maxMarks };
-//     const resp = await axios.post(modelUrl, payload, { timeout: 30000 });
-//     // resp.data expected shape: { score: <number> } (0..maxMarks)
-//     if (resp && resp.data && typeof resp.data.score === "number") {
-//       const s = Math.min(Math.max(Number(resp.data.score) || 0, 0), maxMarks);
-//       return s;
-//     } else {
-//       console.error("evaluateTheoryWithModel: invalid response from model:", resp?.data);
-//       return 0;
-//     }
-//   } catch (err) {
-//     console.error("evaluateTheoryWithModel failed:", err.message || err);
-//     return 0;
-//   }
-// }
 
 export async function evaluateTheoryWithModel(studentAnswer, modelAnswer, maxMarks = 5) {
   const { marks, similarity } = await evaluateTheory(studentAnswer, modelAnswer, maxMarks);
@@ -425,8 +402,17 @@ else if (qType === "CODING") {
   const paperTitle = studentExam.exam?.title || "Exam";
 
   try {
+        const fromEmail = process.env.BREVO_FROM_EMAIL?.trim();
+    const fromName  = process.env.BREVO_FROM_NAME?.trim() || 'Exam Portal';
+    const replyTo   = process.env.REPLY_TO_EMAIL?.trim() || fromEmail;
+
+    
+    if (!fromEmail || !fromEmail.includes('@')) {
+      throw new Error('BREVO_FROM_EMAIL must be a valid email and verified in Brevo');
+    }
+
     await transporter.sendMail({
-      from: process.env.SMTP_USER,
+      from:  `${fromName} <${fromEmail}>`,
       to: studentExam.student?.email,
       subject: `Exam Result: ${paperTitle}`,
       html: `

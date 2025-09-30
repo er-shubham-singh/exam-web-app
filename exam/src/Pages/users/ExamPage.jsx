@@ -36,6 +36,7 @@ const ExamPage = () => {
 const [activeTab, setActiveTab] = useState("MCQ"); 
 const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
 
+
   const { user } = useSelector((s) => s.user);
 
   // ✅ unified exam slice
@@ -421,134 +422,153 @@ const currentTabList = tabLists[activeTab] || [];
 const currentQuestion = currentTabList[currentQuestionIndex] || null;
 
 return (
-  <div className="min-h-screen bg-slate-900 text-white p-6">
+  <div className="min-h-screen bg-slate-50 text-slate-900">
+    {/* Toasts (needed so your warning/info/error messages render) */}
     <ToastContainer position="top-right" pauseOnFocusLoss={false} />
 
-    <div className="max-w-[1400px] mx-auto grid grid-cols-12 gap-6">
-      {/* LEFT: Student info, timer, buttons */}
-      <aside className="col-span-3 bg-slate-800 rounded-lg p-4 space-y-4 sticky top-4 h-fit">
-        {/* Student Info */}
-        <div className="flex items-center gap-3">
-          <div className="w-14 h-14 rounded-full bg-slate-700 flex items-center justify-center text-xl font-bold">
-            {user?.name?.[0] || "U"}
-          </div>
-          <div>
-            <div className="text-sm text-gray-300">Student</div>
-            <div className="font-semibold">{user?.name || "Unknown"}</div>
-            <div className="text-xs text-gray-400">{user?.email}</div>
-          </div>
+    {/* Top timer bar + Submit */}
+    <div className="w-full bg-sky-50 border-b border-sky-100 sticky top-0 z-30">
+      <div className="max-w-[1200px] mx-auto px-4 py-2 flex items-center justify-between text-sm">
+        <div className="w-full text-center">
+          <span className="text-slate-500 mr-2">Time Remaining:</span>
+          <span className="font-semibold tracking-wide">
+            {(() => {
+              if (timeLeft == null) return "--:--";
+              const h = Math.floor(timeLeft / 3600);
+              const m = Math.floor((timeLeft % 3600) / 60);
+              const s = timeLeft % 60;
+              const pad = (n) => (n < 10 ? `0${n}` : n);
+              return `${pad(h)}h ${pad(m)}m ${pad(s)}s`;
+            })()}
+          </span>
         </div>
 
-        <div className="mt-2 space-y-1 text-sm text-gray-300">
-          <div><span className="text-xs text-gray-400">Roll:</span> {user?.rollNumber || "—"}</div>
-          <div><span className="text-xs text-gray-400">Category:</span> {user?.category || "—"}</div>
-          <div><span className="text-xs text-gray-400">Domain:</span> {user?.domainName || user?.domain || "—"}</div>
-        </div>
+        {/* Submit button (keeps your existing handler) */}
+        <button
+          onClick={handleSubmit}
+          disabled={!studentExamId || loading}
+          className="ml-4 shrink-0 px-4 py-2 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-60"
+        >
+          Submit Exam
+        </button>
+      </div>
+    </div>
 
-        <div className="mt-3">
-          <div className="text-xs text-gray-400 mb-1">Timer</div>
-          <div className="text-2xl font-semibold bg-black/20 px-3 py-2 rounded text-center">
-            {timeLeft === null ? "-" : formatTime(timeLeft)}
-          </div>
-        </div>
+{studentExamId && user && (
+  <CameraAndDetection
+    headless
+    studentExamId={studentExamId}
+    user={user}
+    dispatch={dispatch}
+    navigate={navigate}
+    setAlertLog={setAlertLog}
+    alertCountsRef={alertCountsRef}
+    lockedRef={lockedRef}
+  />
+)}
 
-        <div className="mt-3 space-y-2">
-          <button
-            onClick={() => setShowDebugOverlay((s) => !s)}
-            className="w-full px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 font-medium"
-          >
-            {showDebugOverlay ? "Hide Debug" : "Show Debug"}
-          </button>
-          <button
-            onClick={toggleMic}
-            className="w-full px-3 py-2 rounded bg-yellow-600 hover:bg-yellow-500 font-medium"
-          >
-            Toggle Mic
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!studentExamId || loading}
-            className="w-full px-3 py-2 rounded bg-red-600 hover:bg-red-700 font-bold disabled:opacity-60"
-          >
-            Submit Exam
-          </button>
-        </div>
-      </aside>
 
-      {/* CENTER: Question canvas (UNCHANGED) */}
-      <main className="col-span-6">
-        <div className="bg-slate-800 p-6 rounded-lg shadow-lg space-y-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-xl font-bold">{normalizedPaper?.title || "Exam"}</h2>
-              <div className="text-sm text-gray-400">
-                {normalizedPaper?.category} {normalizedPaper?.domain ? `• ${typeof normalizedPaper.domain === "object" ? normalizedPaper.domain.domain : normalizedPaper.domain}` : ""}
-              </div>
-            </div>
-            <div className="text-sm text-gray-300 text-right">
-              <div className="text-xs">Question</div>
-              <div className="text-2xl font-semibold">
-                {currentTabList.length ? currentQuestionIndex + 1 : "-"}
-              </div>
-              <div className="text-xs text-gray-400">{activeTab}</div>
+    <div className="max-w-[1200px] mx-auto px-4 py-6 grid grid-cols-12 gap-6">
+
+
+      
+      {/* MAIN CANVAS */}
+      <main className="col-span-12 lg:col-span-8">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+          {/* Tab switcher (MCQ / THEORY / CODING) */}
+          <div className="mb-6">
+            <div className="inline-flex rounded-xl border border-slate-200 bg-slate-100 p-1">
+              {["MCQ", "THEORY", "CODING"].map((t) => (
+                <button
+                  key={t}
+                  onClick={() => { setActiveTab(t); setCurrentQuestionIndex(0); }}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition
+                    ${activeTab === t ? "bg-white shadow border border-slate-200" : "text-slate-600 hover:text-slate-900"}`}
+                >
+                  {t}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* big question panel */}
-          <div className="bg-slate-900 p-5 rounded-lg min-h-[260px]">
-            {!normalizedPaper || !normalizedPaper.questions?.length ? (
-              <div className="text-center text-gray-400 py-12">No questions available</div>
-            ) : !currentQuestion ? (
-              <div className="text-center text-gray-400 py-12">No {activeTab} questions available</div>
-            ) : (
-              <div>
-                <div className="mb-4">
-                  <div className="text-sm text-gray-400">Q.</div>
-                  <div className="text-lg font-semibold text-white">{currentQuestion.questionText}</div>
+          {/* progress header */}
+          <div className="mb-4">
+            <div className="text-xs text-slate-500 mb-1">
+              {currentTabList.length ? `Question ${currentQuestionIndex + 1} of ${currentTabList.length}` : "Question"}
+            </div>
+            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-sky-500 transition-all"
+                style={{
+                  width:
+                    currentTabList.length > 0
+                      ? `${((currentQuestionIndex + 1) / currentTabList.length) * 100}%`
+                      : "0%",
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Title */}
+          <h1 className="text-2xl sm:text-3xl font-extrabold leading-snug mb-6">
+            {currentQuestion?.questionText || "No questions available"}
+          </h1>
+
+          {/* Content area */}
+          {!normalizedPaper || !normalizedPaper.questions?.length ? (
+            <div className="text-center text-slate-500 py-16">No questions available</div>
+          ) : !currentQuestion ? (
+            <div className="text-center text-slate-500 py-16">No {activeTab} questions available</div>
+          ) : (
+            <>
+              {/* MCQ */}
+              {activeTab === "MCQ" && (
+                <div className="space-y-4">
+                  {(currentQuestion.options || []).map((opt, idx) => {
+                    const letter = String.fromCharCode(65 + idx);
+                    const checked = savedAnswers[currentQuestion._id] === letter;
+                    return (
+                      <label
+                        key={idx}
+                        className={`flex items-center gap-3 rounded-xl border p-4 cursor-pointer transition
+                        ${
+                          checked
+                            ? "bg-sky-50 border-sky-300 ring-1 ring-sky-400"
+                            : "bg-white border-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`q-${currentQuestion._id}`}
+                          checked={checked}
+                          onChange={() => handleMCQChange(currentQuestion._id, letter)}
+                          className="w-5 h-5 accent-sky-600"
+                        />
+                        <span className="font-medium">{opt}</span>
+                      </label>
+                    );
+                  })}
                 </div>
+              )}
 
-                {/* MCQ */}
-                {activeTab === "MCQ" && (
-                  <div className="space-y-3">
-                    {(currentQuestion.options || []).map((opt, idx) => {
-                      const letter = String.fromCharCode(65 + idx);
-                      const attempted = savedAnswers[currentQuestion._id] === letter;
-                      return (
-                        <label
-                          key={idx}
-                          className={`flex items-center gap-3 rounded p-3 cursor-pointer border ${attempted ? "bg-green-700/60 border-green-600" : "bg-slate-800 border-slate-700"}`}
-                        >
-                          <input
-                            type="radio"
-                            name={`q-${currentQuestion._id}`}
-                            checked={attempted}
-                            onChange={() => handleMCQChange(currentQuestion._id, letter)}
-                            className="mr-3"
-                          />
-                          <span className="font-medium">{letter}.</span>
-                          <span>{opt}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
+              {/* THEORY */}
+              {activeTab === "THEORY" && (
+                <div className="mt-2">
+                  <div className="text-sm text-slate-600 mb-2">Your Answer</div>
+                  <textarea
+                    value={savedAnswers[currentQuestion._id] || ""}
+                    onChange={(e) => handleTheoryChange(currentQuestion._id, e.target.value)}
+                    onBlur={() => handleTheoryBlur(currentQuestion._id)}
+                    rows={10}
+                    placeholder="Write your answer here..."
+                    className="w-full rounded-xl border border-slate-200 bg-white p-4 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                  />
+                </div>
+              )}
 
-                {/* THEORY */}
-                {activeTab === "THEORY" && (
-                  <div>
-                    <textarea
-                      value={savedAnswers[currentQuestion._id] || ""}
-                      onChange={(e) => handleTheoryChange(currentQuestion._id, e.target.value)}
-                      onBlur={() => handleTheoryBlur(currentQuestion._id)}
-                      rows={8}
-                      className="w-full p-3 rounded bg-slate-800 text-gray-200"
-                      placeholder="Write your answer..."
-                    />
-                  </div>
-                )}
-
-                {/* CODING */}
-                {activeTab === "CODING" && (
+              {/* CODING (kept intact) */}
+              {activeTab === "CODING" && (
+                <div className="mt-2">
                   <CodingCard
                     q={currentQuestion}
                     codingState={codingState}
@@ -560,136 +580,115 @@ return (
                     setDebugText={setDebugText}
                     setShowDebugOverlay={setShowDebugOverlay}
                   />
-                )}
-
-                {/* navigation */}
-                <div className="flex items-center justify-between mt-4">
-                  <div className="text-sm text-gray-300">
-                    {currentQuestion.type} • Marks: {currentQuestion.marks ?? "-"}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setCurrentQuestionIndex((i) => Math.max(0, i - 1))}
-                      className="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600"
-                    >
-                      Prev
-                    </button>
-                    <button
-                      onClick={() => setCurrentQuestionIndex((i) => Math.min(currentTabList.length - 1, i + 1))}
-                      className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500"
-                    >
-                      Next
-                    </button>
-                  </div>
                 </div>
+              )}
+
+              {/* Bottom controls */}
+              <div className="mt-8 pt-6 border-t border-slate-200 flex items-center justify-between">
+                <button
+                  onClick={() => setCurrentQuestionIndex((i) => Math.max(0, i - 1))}
+                  className="px-4 py-2 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 transition disabled:opacity-50"
+                  disabled={currentQuestionIndex === 0}
+                >
+                  Previous
+                </button>
+
+                <button
+                  onClick={() =>
+                    setCurrentQuestionIndex((i) => Math.min(currentTabList.length - 1, i + 1))
+                  }
+                  className="px-5 py-2 rounded-lg bg-sky-600 text-white font-semibold hover:bg-sky-700 transition disabled:opacity-50"
+                  disabled={currentTabList.length === 0 || currentQuestionIndex === currentTabList.length - 1}
+                >
+                  Next
+                </button>
               </div>
-            )}
-          </div>
+            </>
+          )}
         </div>
       </main>
 
-      {/* RIGHT: camera, then profile/tabs/palette */}
-      <aside className="col-span-3">
-        <div className="bg-slate-800 rounded-lg p-4 sticky top-4 space-y-4">
-          {/* Camera block moved here */}
-          <div>
-            <div className="text-xs text-gray-400 mb-1">Camera</div>
-            <div className="bg-black/30 rounded overflow-visible w-full h-36 flex items-center justify-center border border-slate-700">
-              <div className="w-full h-full">
-                <CameraAndDetection
-                  studentExamId={studentExamId}
-                  user={user}
-                  dispatch={dispatch}
-                  navigate={navigate}
-                  setAlertLog={setAlertLog}
-                  alertCountsRef={alertCountsRef}
-                  lockedRef={lockedRef}
-                />
-              </div>
-            </div>
-          </div>
+      {/* RIGHT SIDEBAR: Question navigator */}
+      <aside className="col-span-12 lg:col-span-4">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sticky top-20">
+             <h3 className="text-xl font-semibold mb-4">Proctoring Warnings</h3>
+   {alertLog.length === 0 ? (
+     <div className="text-sm text-slate-500 mb-6">No warnings yet</div>
+   ) : (
+     <div className="mb-6 max-h-64 overflow-auto rounded-lg border border-slate-100">
+       <ul className="divide-y divide-slate-100 text-sm">
+         {alertLog.map((a, i) => (
+           <li key={i} className="px-3 py-2">
+             <div className="flex items-center justify-between">
+              <span className="font-medium">{a.type}</span>
+               <span className="text-xs text-slate-500">
+                 {new Date(a.timestamp).toLocaleTimeString()}
+               </span>
+             </div>
+            {a.issue && <div className="text-xs text-slate-600 mt-0.5">{a.issue}</div>}
+          </li>
+         ))}
+       </ul>
+     </div>
+   )}
+          <h3 className="text-xl font-semibold mb-4">Questions</h3>
 
-          {/* Tabs, question grid, legend, and user info remain here */}
-          {/* User Profile */}
-          <div className="flex items-center gap-3 mb-4 p-3 bg-slate-700 rounded-lg">
-            <div className="w-14 h-14 rounded-full bg-slate-900 flex items-center justify-center text-xl font-bold">
-              {user?.name?.[0] || "U"}
-            </div>
-            <div>
-              <div className="text-sm text-gray-300">Student</div>
-              <div className="font-semibold text-white">{user?.name || "Unknown"}</div>
-              <div className="text-xs text-gray-400">{user?.email}</div>
-              <div className="mt-1 text-xs text-gray-400 space-y-0.5">
-                <div><span className="text-xs text-gray-400">Roll:</span> {user?.rollNumber || "—"}</div>
-                <div><span className="text-xs text-gray-400">Category:</span> {user?.category || "—"}</div>
-                <div><span className="text-xs text-gray-400">Domain:</span> {user?.domainName || user?.domain || "—"}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Tabs */}
-          <div className="flex gap-2">
-            {["MCQ", "THEORY", "CODING"].map((t) => (
-              <button
-                key={t}
-                onClick={() => { setActiveTab(t); setCurrentQuestionIndex(0); }}
-                className={`flex-1 py-2 rounded ${activeTab === t ? "bg-blue-600 text-white" : "bg-slate-700 text-gray-300"}`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-
-          {/* question grid */}
-          <div className="max-h-[54vh] overflow-auto pr-2">
-            <div className="text-sm text-gray-300 mb-2">Questions ({activeTab})</div>
-            <div className="grid grid-cols-5 gap-2">
-              {currentTabList.length === 0 ? (
-                <div className="col-span-5 text-xs text-gray-400">No questions</div>
-              ) : currentTabList.map((q, idx) => {
-                const attempted = !!savedAnswers[q._id] && (activeTab !== "CODING" ? true : !!savedAnswers[q._id]?.code);
+          <div className="grid grid-cols-5 gap-3">
+            {currentTabList.length === 0 ? (
+              <div className="col-span-5 text-sm text-slate-500">No questions</div>
+            ) : (
+              currentTabList.map((q, idx) => {
+                const attempted =
+                  !!savedAnswers[q._id] &&
+                  (activeTab !== "CODING" ? true : !!savedAnswers[q._id]?.code);
                 const isActive = idx === currentQuestionIndex;
                 return (
                   <button
                     key={q._id}
                     onClick={() => setCurrentQuestionIndex(idx)}
+                    className={`h-10 rounded-xl text-sm font-semibold border transition
+                      ${
+                        isActive
+                          ? "bg-sky-600 text-white border-sky-600"
+                          : attempted
+                          ? "bg-green-500 text-white border-green-500"
+                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      }`}
                     title={q.questionText}
-                    className={`p-2 rounded text-xs font-medium border ${isActive ? "bg-white text-black border-white" : attempted ? "bg-green-600 text-white border-green-600" : "bg-slate-700 text-gray-300 border-slate-700"}`}
                   >
                     {idx + 1}
                   </button>
                 );
-              })}
-            </div>
-          </div>
-
-          {/* legend */}
-          <div className="text-xs text-gray-400 mt-3 space-y-1">
-            <div><span className="inline-block w-3 h-3 bg-green-600 mr-2 align-middle"></span> Attempted</div>
-            <div><span className="inline-block w-3 h-3 bg-slate-700 mr-2 align-middle"></span> Unattempted</div>
-            <div><span className="inline-block w-3 h-3 bg-white mr-2 align-middle border"></span> Current</div>
+              })
+            )}
           </div>
         </div>
       </aside>
     </div>
 
-    {/* Debug overlay (optional) */}
+    {/* Your existing overlays/modals keep working */}
     {showDebugOverlay && (
       <div className="fixed right-4 top-14 z-50 w-full max-w-[540px] max-h-[85vh] overflow-auto bg-slate-800/95 border border-red-700 rounded-lg shadow-xl p-3 text-sm text-slate-100">
         <div className="flex items-center justify-between mb-2">
           <div className="font-semibold text-white">Run / Debug Output</div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setShowDebugOverlay(false)} className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20">Close</button>
+            <button
+              onClick={() => setShowDebugOverlay(false)}
+              className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+            >
+              Close
+            </button>
           </div>
         </div>
-        <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-200">{debugText}</pre>
+        <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-200">
+          {debugText}
+        </pre>
       </div>
     )}
 
     <LeaveExamModal open={leaveOpen} onStay={stayHere} onLeave={confirmLeave} />
   </div>
 );
-
 };
 
 export default ExamPage;

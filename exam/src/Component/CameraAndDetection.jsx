@@ -20,6 +20,7 @@ export  function CameraAndDetection({
   setAlertLog = () => {},
   alertCountsRef = { current: {} },
   lockedRef = { current: false },
+  headless = false,
 }) {
   const videoRef = useRef(null);
   const mpCameraRef = useRef(null);
@@ -240,7 +241,17 @@ export  function CameraAndDetection({
     });
 
     // start everything
-    const el = videoRef.current;
+    // const el = videoRef.current;
+    // if (el) initDetection(el);
+
+      // Use an off-DOM video element when headless
+   let el = videoRef.current;
+    if (headless) {
+      el = document.createElement("video");
+      el.setAttribute("muted", "");
+      el.muted = true;
+      el.playsInline = true;
+    }
     if (el) initDetection(el);
 
     // cleanup helper
@@ -274,27 +285,23 @@ export  function CameraAndDetection({
     });
   };
 
+  // Render nothing when headless
+  if (headless) return null;
+
   return (
     <div className="w-full">
       <div className="relative bg-black/30 rounded overflow-hidden border border-slate-700">
-        <video
-          ref={videoRef}
-          id="camera-feed"
-          autoPlay
-          muted={isMuted}
-          playsInline
-          className="w-full h-48 object-cover bg-black"
-        />
+        <video ref={videoRef} id="camera-feed" autoPlay muted={isMuted} playsInline className="w-full h-48 object-cover bg-black" />
         <div className="absolute right-2 top-2 flex items-center gap-2">
           <div className={`w-3 h-3 rounded-full ${status === "running" ? "bg-green-400" : status === "error" ? "bg-red-500" : "bg-yellow-400"}`} title={status}></div>
           <button onClick={toggleMute} className="px-2 py-1 text-xs bg-white/10 rounded">
             {isMuted ? "Unmute" : "Mute"}
           </button>
         </div>
-      </div>
+    </div>
       <div className="text-xs mt-2 text-gray-300">
         Camera status: <span className="font-semibold">{status}</span>
       </div>
     </div>
-  );
+      );
 }
