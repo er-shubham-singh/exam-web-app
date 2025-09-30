@@ -21,13 +21,6 @@ const generateRollNumber = async () => {
 };
 
 // ---------------- REGISTER ----------------
-// registration part of your service file
-// service
-import transporter from '../config/transporter.js'; // adjust path
-import User from '../models/user.model.js';
-import RollLog from '../models/rollLog.model.js';
-import { isValidEmail } from '../utils/validators.js';
-import { generateRollNumber } from '../utils/rollNumber.js';
 
 export const registerUserService = async (data) => {
   const { name, email, category } = data;

@@ -19,16 +19,11 @@
 // });
 
 // export default transporter;
-
-// transporter.brevo.js
-
-// config/email.js
-// transporter.js
+// src/Config/email.config.js
 import 'dotenv/config';
 import nodemailer from 'nodemailer';
-import brevoTransport from 'nodemailer-brevo-transport';
+import { BrevoApiTransport } from './brevo.transport.js';
 
-// helper to ensure required env vars exist
 function requireEnv(name) {
   const v = process.env[name];
   if (!v) throw new Error(`Missing env: ${name}`);
@@ -36,17 +31,12 @@ function requireEnv(name) {
 }
 
 const BREVO_API_KEY = requireEnv('BREVO_API_KEY');
-
 console.log('📧 Brevo Auth: (API key set)');
 
-// ✅ Create transporter (Brevo API)
 const transporter = nodemailer.createTransport(
-  brevoTransport({
-    apiKey: BREVO_API_KEY,
-  })
+  new BrevoApiTransport({ apiKey: BREVO_API_KEY })
 );
 
-// ✅ Log initialization (API verify not needed)
 console.log('✅ Brevo API transporter initialized (HTTP, not SMTP)');
 
-export default transporter;
+export default transporter;   // <-- default export
