@@ -24,31 +24,42 @@
 
 // config/email.js
 
-import 'dotenv/config';                 // <-- loads .env at import time
+import 'dotenv/config';
 import nodemailer from 'nodemailer';
 
 function requireEnv(name) {
   const v = process.env[name];
   if (!v) throw new Error(`Missing env: ${name}`);
-  return v.trim();                      // trim accidental spaces/newlines
+  return v.trim();
 }
 
 const BREVO_SMTP_USER = requireEnv('BREVO_SMTP_USER');
-const BREVO_SMTP_KEY  = requireEnv('BREVO_SMTP_KEY');
-// quick sanity log (masked)
+const BREVO_SMTP_KEY = requireEnv('BREVO_SMTP_KEY');
+
 console.log(
-  'Brevo auth:',
+  '📧 Brevo Auth:',
   BREVO_SMTP_USER,
   BREVO_SMTP_KEY ? '(key set)' : '(missing)'
 );
 
+// ✅ Create transporter with debug & logger enabled
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
   port: 587,
   secure: false,
   requireTLS: true,
   auth: { user: BREVO_SMTP_USER, pass: BREVO_SMTP_KEY },
-  // logger/debug only in dev
+  logger: true, // <-- log SMTP conversation
+  debug: true,  // <-- log protocol responses
+});
+
+// ✅ Verify connection on startup
+transporter.verify((err, success) => {
+  if (err) {
+    console.error('❌ Brevo SMTP verification failed:', err.message);
+  } else {
+    console.log('✅ Brevo SMTP connection successful');
+  }
 });
 
 export default transporter;

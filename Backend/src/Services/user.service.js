@@ -41,7 +41,9 @@ export const registerUserService = async (data) => {
     const fromEmail = process.env.BREVO_FROM_EMAIL?.trim();
     const fromName  = process.env.BREVO_FROM_NAME?.trim() || 'Exam Portal';
     const replyTo   = process.env.REPLY_TO_EMAIL?.trim() || fromEmail;
-
+  console.log(`📨 Sending mail to ${email}...`);
+  console.log(`From: ${fromName} <${fromEmail}>`);
+  console.log(`Reply-To: ${replyTo}`);
     if (!fromEmail || !fromEmail.includes('@')) {
       throw new Error('BREVO_FROM_EMAIL must be a valid email and verified in Brevo');
     }
@@ -73,7 +75,9 @@ Please keep this safe; it will be required to login and take the exam.`,
         'X-Mailin-Custom': JSON.stringify({ feature: 'registration' }),
       },
     });
-
+  console.log('✅ Email sent:', info.messageId || '(no messageId)');
+  console.log('SMTP response:', info.response);
+  
     messageId = info?.messageId || null;
     await RollLog.create({ user: user._id, email, rollNumber, status: "SENT", messageId });
   } catch (err) {
