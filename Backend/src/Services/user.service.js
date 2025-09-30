@@ -23,14 +23,24 @@ const generateRollNumber = async () => {
 // ---------------- REGISTER ----------------
 // registration part of your service file
 // service
+import transporter from '../config/transporter.js'; // adjust path
+import User from '../models/user.model.js';
+import RollLog from '../models/rollLog.model.js';
+import { isValidEmail } from '../utils/validators.js';
+import { generateRollNumber } from '../utils/rollNumber.js';
+
 export const registerUserService = async (data) => {
   const { name, email, category } = data;
+
+  // ✅ Basic validation
   if (!name || !email || !category) throw new Error("All fields are required.");
   if (!isValidEmail(email)) throw new Error("Invalid email format.");
 
+  // ✅ Check existing
   const existing = await User.findOne({ email });
   if (existing) throw new Error("User already exists with this email.");
 
+  // ✅ Create user with generated roll number
   const rollNumber = await generateRollNumber();
   const user = await User.create({ name, email, category, rollNumber });
 
@@ -41,17 +51,20 @@ export const registerUserService = async (data) => {
     const fromEmail = process.env.BREVO_FROM_EMAIL?.trim();
     const fromName  = process.env.BREVO_FROM_NAME?.trim() || 'Exam Portal';
     const replyTo   = process.env.REPLY_TO_EMAIL?.trim() || fromEmail;
-  console.log(`📨 Sending mail to ${email}...`);
-  console.log(`From: ${fromName} <${fromEmail}>`);
-  console.log(`Reply-To: ${replyTo}`);
+
+    console.log(`📨 Sending mail to ${email}...`);
+    console.log(`From: ${fromName} <${fromEmail}>`);
+    console.log(`Reply-To: ${replyTo}`);
+
     if (!fromEmail || !fromEmail.includes('@')) {
       throw new Error('BREVO_FROM_EMAIL must be a valid email and verified in Brevo');
     }
 
+    // ✅ Send email using Brevo API transporter
     const info = await transporter.sendMail({
-      from: `${fromName} <${fromEmail}>`,       // header From (verified)
+      from: `${fromName} <${fromEmail}>`,
       to: email,
-      replyTo,                                  // human inbox
+      replyTo,
       subject: "Your Exam Roll Number",
       text: `Hello ${name},
 
@@ -65,23 +78,33 @@ Please keep this safe; it will be required to login and take the exam.`,
         <p><b>Your Roll Number: ${rollNumber}</b></p>
         <p>Please keep this safe; it will be required to login and take the exam.</p>
       `,
-      // **CRITICAL**: envelope must not be empty and should match a valid email
-      envelope: {
-        from: fromEmail,   // <-- no typo; must be same verified sender/domain
-        to: email,
-      },
+      envelope: { from: fromEmail, to: email },
       headers: {
         'X-Mailin-Tag': 'exam-roll',
         'X-Mailin-Custom': JSON.stringify({ feature: 'registration' }),
       },
     });
-  console.log('✅ Email sent:', info.messageId || '(no messageId)');
-  console.log('SMTP response:', info.response);
-  
+
+    console.log('✅ Email sent successfully!');
+    console.log('📬 Message ID:', info?.messageId || '(none)');
+    console.log('📨 API Response:', info?.response || '(no response)');
+
     messageId = info?.messageId || null;
-    await RollLog.create({ user: user._id, email, rollNumber, status: "SENT", messageId });
+
+    // ✅ Log success in DB
+    await RollLog.create({
+      user: user._id,
+      email,
+      rollNumber,
+      status: "SENT",
+      messageId,
+    });
+
   } catch (err) {
+    console.error('❌ Email sending failed:', err?.message);
     emailStatus = "FAILED";
+
+    // ✅ Log failure
     await RollLog.create({
       user: user._id,
       email,
@@ -94,6 +117,7 @@ Please keep this safe; it will be required to login and take the exam.`,
 
   return { user, emailStatus };
 };
+
 
 
 
