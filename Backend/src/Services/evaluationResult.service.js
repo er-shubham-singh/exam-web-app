@@ -402,11 +402,14 @@ else if (qType === "CODING") {
   const paperTitle = studentExam.exam?.title || "Exam";
 
   try {
-        const fromEmail = process.env.BREVO_FROM_EMAIL?.trim();
+    const fromEmail = process.env.BREVO_FROM_EMAIL?.trim();
     const fromName  = process.env.BREVO_FROM_NAME?.trim() || 'Exam Portal';
     const replyTo   = process.env.REPLY_TO_EMAIL?.trim() || fromEmail;
 
-    
+    console.log(`📨 Sending mail to ${email}...`);
+    console.log(`From: ${fromName} <${fromEmail}>`);
+    console.log(`Reply-To: ${replyTo}`);
+
     if (!fromEmail || !fromEmail.includes('@')) {
       throw new Error('BREVO_FROM_EMAIL must be a valid email and verified in Brevo');
     }

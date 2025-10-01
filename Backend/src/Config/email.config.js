@@ -19,24 +19,33 @@
 // });
 
 // export default transporter;
+
 // src/Config/email.config.js
-import 'dotenv/config';
-import nodemailer from 'nodemailer';
-import { BrevoApiTransport } from './brevo.transport.js';
+// transporter.js
 
-function requireEnv(name) {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing env: ${name}`);
-  return v.trim();
-}
+// transporter.js
 
-const BREVO_API_KEY = requireEnv('BREVO_API_KEY');
-console.log('📧 Brevo Auth: (API key set)');
+import nodemailer from "nodemailer";
 
-const transporter = nodemailer.createTransport(
-  new BrevoApiTransport({ apiKey: BREVO_API_KEY })
-);
+const transporter = nodemailer.createTransport({
+  host: "smtp-relay.brevo.com",
+  port: 587,
+  secure: false, // use TLS
+  auth: {
+    user: process.env.BREVO_SMTP_USER,
+    pass: process.env.BREVO_SMTP_PASS,
+  },
+  pool: true,
+  maxConnections: 5,
+  maxMessages: 100,
+});
 
-console.log('✅ Brevo API transporter initialized (HTTP, not SMTP)');
+transporter.verify((err) => {
+  if (err) {
+    console.error("❌ Brevo SMTP verify error:", err);
+  } else {
+    console.log("✅ Brevo SMTP ready to send emails");
+  }
+});
 
-export default transporter;   // <-- default export
+export default transporter;

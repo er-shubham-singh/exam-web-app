@@ -54,29 +54,39 @@ export const registerUserService = async (data) => {
     }
 
     // ✅ Send email using Brevo API transporter
-    const info = await transporter.sendMail({
-      from: `${fromName} <${fromEmail}>`,
-      to: email,
-      replyTo,
-      subject: "Your Exam Roll Number",
-      text: `Hello ${name},
+const info = await transporter.sendMail({
+  from: `${fromName} <${fromEmail}>`,     // e.g., "Exam Portal <no-reply@yourdomain.com>"
+  to: email,
+  replyTo,
+  subject: "Your Exam Roll Number",
+  text: `Hello ${name},
 
 You have successfully registered for the exam under category ${category}.
 Your Roll Number: ${rollNumber}
 
 Please keep this safe; it will be required to login and take the exam.`,
-      html: `
-        <h2>Hello ${name},</h2>
-        <p>You have successfully registered for the exam under category <b>${category}</b>.</p>
-        <p><b>Your Roll Number: ${rollNumber}</b></p>
-        <p>Please keep this safe; it will be required to login and take the exam.</p>
-      `,
-      envelope: { from: fromEmail, to: email },
-      headers: {
-        'X-Mailin-Tag': 'exam-roll',
-        'X-Mailin-Custom': JSON.stringify({ feature: 'registration' }),
-      },
-    });
+  html: `
+    <h2>Hello ${name},</h2>
+    <p>You have successfully registered for the exam under category <b>${category}</b>.</p>
+    <p><b>Your Roll Number: ${rollNumber}</b></p>
+    <p>Please keep this safe; it will be required to login and take the exam.</p>
+    <hr/>
+    <p style="font-size:12px">
+      If you didn’t request this, ignore this message.
+      <br/>Unsubscribe: <a href="https://yourdomain.com/unsubscribe?email=${encodeURIComponent(email)}">click here</a>
+    </p>
+  `,
+  // Envelope MAIL FROM should be your domain (helps SPF/DMARC alignment)
+  envelope: { from: fromEmail, to: email },
+
+  headers: {
+    "List-Unsubscribe": `<mailto:unsubscribe@yourdomain.com>, <https://yourdomain.com/unsubscribe?email=${encodeURIComponent(email)}>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    "X-Mailin-Tag": "exam-roll",
+    "X-Mailin-Custom": JSON.stringify({ feature: "registration" }),
+  },
+});
+
 
     console.log('✅ Email sent successfully!');
     console.log('📬 Message ID:', info?.messageId || '(none)');
@@ -110,10 +120,6 @@ Please keep this safe; it will be required to login and take the exam.`,
 
   return { user, emailStatus };
 };
-
-
-
-
 
 
 // login part of your service file
