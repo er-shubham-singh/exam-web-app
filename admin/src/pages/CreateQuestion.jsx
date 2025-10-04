@@ -675,10 +675,10 @@ const handleCreateNewSetClick = () => {
 };
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-4">
+    <main className=" bg-gray-950 text-white p-4">
       <div className="max-w-7xl mx-auto space-y-8">
         {/* TOP ROW: Template/Set controls + Added Questions (side-by-side on lg, stacked on sm) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1  gap-6">
           {/* Template/Set controls (left) */}
           <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
             <TemplateSetSelector
@@ -726,14 +726,13 @@ const handleCreateNewSetClick = () => {
         </div>
 
         {/* BOTTOM ROW: Compact area with Create button only (modal will hold actual form) */}
-        <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 flex items-center justify-between">
+        {/* <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-extrabold text-blue-400">Create a Question</h1>
             <p className="text-gray-400 mt-1">Click Create Question to open the form in a modal.</p>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Quick mode selector so user can choose which form opens in modal */}
             <div className="flex items-center gap-2 bg-gray-900 p-2 rounded">
               <button
                 onClick={() => setMode("MCQ")}
@@ -765,7 +764,7 @@ const handleCreateNewSetClick = () => {
               </button>
             )}
           </div>
-        </div>
+        </div> */}
       </div>
 
       {/* Modal — forms are shown only inside modal */}

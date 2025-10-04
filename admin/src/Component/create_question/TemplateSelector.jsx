@@ -76,19 +76,42 @@ const TemplateSelector = ({
 
   return (
     <div className="relative">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between px-2 ">
         <div>
-          <h3 className="text-lg font-semibold text-white">Template & Sets</h3>
+          <h3 className="text-lg font-semibold text-white ">Template & Sets</h3>
           <p className="text-sm text-gray-400 mb-3">Select template and set, or create new.</p>
         </div>
 
         {/* show Category & Domain at top-right for clarity */}
-        <div className="text-right text-sm">
+        <div className="flex items-center justify-between  gap-10 text-sm">
           {category && <div><span className="text-xs text-gray-300">Category</span><div className="font-semibold text-white">{category}</div></div>}
-          {selectedDomain && <div className="mt-2"><span className="text-xs text-gray-300">Domain</span><div className="font-semibold text-white">{selectedDomain.domain || selectedDomain.name}</div></div>}
+          {selectedDomain && <div className=""><span className="text-xs text-gray-300">Domain</span><div className="font-semibold text-white">{selectedDomain.domain || selectedDomain.name}</div></div>}
         </div>
       </div>
+      {/* if no templates, show helpful CTA */}
+      {(!templates || !templates.length) && (
+        <div className="mt-4 p-3 bg-gray-900 rounded border border-gray-800">
+          <p className="text-sm text-gray-300 mb-2">No templates for this category. Create one from domain questions.</p>
+          <div className="flex gap-3 items-center">
+            <input
+              value={defaultSetLabel}
+              onChange={(e)=> setDefaultSetLabel(e.target.value)}
+              className="w-20 p-2 rounded bg-gray-800 border border-gray-700 text-gray-200"
+              aria-label="default set label"
+            />
+            <button
+              onClick={finalizePaper}
+              disabled={finalizeLoading}
+              className={`px-4 py-2 rounded-full text-white ${finalizeLoading ? "bg-gray-600" : "bg-blue-600 hover:bg-blue-500"}`}
+            >
+              {finalizeLoading ? "Creating..." : `Create template & Set ${defaultSetLabel || "A"}`}
+            </button>
 
+            {/* helpful hint */}
+            <span className="text-xs text-gray-400 ml-3">This will create a template from current domain's questions.</span>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
         <div>
           <label className="text-xs text-gray-300">Template (optional)</label>
@@ -138,30 +161,7 @@ const TemplateSelector = ({
         </div>
       </div>
 
-      {/* if no templates, show helpful CTA */}
-      {(!templates || !templates.length) && (
-        <div className="mt-4 p-3 bg-gray-900 rounded border border-gray-800">
-          <p className="text-sm text-gray-300 mb-2">No templates for this category. Create one from domain questions.</p>
-          <div className="flex gap-3 items-center">
-            <input
-              value={defaultSetLabel}
-              onChange={(e)=> setDefaultSetLabel(e.target.value)}
-              className="w-20 p-2 rounded bg-gray-800 border border-gray-700 text-gray-200"
-              aria-label="default set label"
-            />
-            <button
-              onClick={finalizePaper}
-              disabled={finalizeLoading}
-              className={`px-4 py-2 rounded-full text-white ${finalizeLoading ? "bg-gray-600" : "bg-blue-600 hover:bg-blue-500"}`}
-            >
-              {finalizeLoading ? "Creating..." : `Create template & Set ${defaultSetLabel || "A"}`}
-            </button>
 
-            {/* helpful hint */}
-            <span className="text-xs text-gray-400 ml-3">This will create a template from current domain's questions.</span>
-          </div>
-        </div>
-      )}
 
       {!!error && <p className="text-xs text-red-400 mt-2">{error}</p>}
     </div>
