@@ -213,7 +213,7 @@ export default function AddedQuestionsPanel({
           </div>
         </div>
 
-        <div className="max-h-[56vh] overflow-auto pr-3">
+        <div className="max-h-[50vh] overflow-auto pr-3">
           {filtered.length === 0 ? (
             <div className="p-6 bg-gray-900 rounded-md text-center text-gray-300">
               <h3 className="text-lg font-semibold text-white">{activeSet === "__unassigned__" ? "No questions added yet" : "No questions in this set"}</h3>
