@@ -22,6 +22,8 @@ import { HeaderPanel } from "../../Component/HeaderPanel";
 import { CodingCard } from "../../Component/CodingCard";
 import { CameraAndDetection } from "../../Component/CameraAndDetection";
 
+
+
 const ExamPage = () => {
   const [codingState, setCodingState] = useState({}); // { [questionId]: { code, language } }
   const codingAttempts = useSelector((s) => s.exam.codingAttempts || {}); // shape from reducer
@@ -67,6 +69,67 @@ const normalizedPaper = React.useMemo(() => {
   const qs = (paper.questions || []).map(q => (q && q.question ? q.question : q)).filter(Boolean);
   return { ...paper, questions: qs };
 }, [paper]);
+
+// full screen
+const fsRef = useRef(null);
+const [fsReady, setFsReady] = useState(false);
+
+async function requestFSOn(el) {
+  try {
+    if (!document.fullscreenElement) {
+      const req = el?.requestFullscreen || el?.webkitRequestFullscreen || el?.msRequestFullscreen;
+      if (req) await req.call(el);
+    }
+    // relock keys in case browser dropped it during route change
+    if (navigator.keyboard?.lock) {
+      await navigator.keyboard.lock(["F11", "Escape"]);
+    }
+    setFsReady(true);
+  } catch (e) {
+    console.warn("Fullscreen failed:", e);
+    toast.error(`Fullscreen failed: ${e?.name || e?.message || e}`);
+  }
+}
+
+useEffect(() => {
+  // 1) Immediately enter fullscreen on the exam container
+  const t = setTimeout(() => requestFSOn(fsRef.current), 0);
+
+  // 2) If they exit (Esc/F11/top overlay), instantly restore
+  const onFsChange = () => {
+    if (!document.fullscreenElement) {
+      // optional: count a warning here
+      requestFSOn(fsRef.current); // snap back to fullscreen
+    }
+  };
+
+  // 3) Belt-and-suspenders: block F11/Escape
+  const onKeyDown = (e) => {
+    const k = (e.key || "").toLowerCase();
+    if (k === "f11" || k === "escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      // force fullscreen back if the browser toggled
+      if (!document.fullscreenElement) requestFSOn(fsRef.current);
+    }
+    // (Optional) block ctrl/cmd shortcuts you don’t want:
+    if ((e.ctrlKey || e.metaKey) && ["p","s","w","t","n","r"].includes(k)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  document.addEventListener("fullscreenchange", onFsChange);
+  window.addEventListener("keydown", onKeyDown, { capture: true });
+
+  return () => {
+    clearTimeout(t);
+    document.removeEventListener("fullscreenchange", onFsChange);
+    window.removeEventListener("keydown", onKeyDown, { capture: true });
+    // Do NOT exit fullscreen here; we only exit on submit.
+  };
+}, []);
+
 
 
   useEffect(() => {
@@ -160,33 +223,78 @@ const normalizedPaper = React.useMemo(() => {
     return () => clearInterval(interval);
   }, [timeLeft]);
 
-  const handleSubmit = async () => {
-    if (!studentExamId) {
-      alert("Missing student exam ID");
-      return;
+
+  // Count totals and attempts using the current paper + saved answers
+const buildSubmissionSummary = () => {
+  const qs = normalizedPaper?.questions || [];
+
+  let mcqTotal = 0, theoryTotal = 0, codingTotal = 0;
+  let mcqAttempted = 0, theoryAttempted = 0, codingAttempted = 0;
+
+  qs.forEach((q) => {
+    if (!q || !q._id) return;
+    const ans = savedAnswers[q._id];
+
+    if (q.type === "MCQ") {
+      mcqTotal += 1;
+      if (ans) mcqAttempted += 1; // e.g., "A"/"B"
+    } else if (q.type === "THEORY") {
+      theoryTotal += 1;
+      if (typeof ans === "string" && ans.trim().length > 0) theoryAttempted += 1;
+    } else if (q.type === "CODING") {
+      codingTotal += 1;
+      if (ans && typeof ans.code === "string" && ans.code.trim().length > 0) codingAttempted += 1;
     }
+  });
 
-    try {
-      const result = await dispatch(
-        submitExam({ studentExamId }) // ✅ new API expects studentExamId
-      );
-
-      socket.emit("submit_exam", {
-        email: user.email,
-        studentExamId,
-      });
-
-      toast.success("Exam submitted successfully.");
-      // lock user so they cannot rejoin
-      lockedRef.current = true;
-      localStorage.setItem("exam_locked", "true");
-      // small delay so the toast is visible, then go Home
-      setTimeout(() => navigate("/"), 800);
-    } catch (err) {
-      console.error("❌ Submission failed:", err);
-      toast.error("Submission failed. Please try again.");
-    }
+  return {
+    examName: normalizedPaper?.title || "Exam",
+    mcqTotal, mcqAttempted,
+    theoryTotal, theoryAttempted,
+    codingTotal, codingAttempted,
   };
+};
+
+
+const handleSubmit = async () => {
+  if (!studentExamId) {
+    alert("Missing student exam ID");
+    return;
+  }
+
+  try {
+    const res = await dispatch(submitExam({ studentExamId })); // returns { success, submission, evaluation }
+
+    socket.emit("submit_exam", { email: user.email, studentExamId });
+    toast.success("Exam submitted successfully.");
+
+    // Build the simple summary (no scores/marks)
+    const attempted = buildSubmissionSummary();
+    const confirmationId = studentExamId;
+    const submissionTime = new Date().toISOString(); // or res?.submission?.submittedAt
+
+    // allow leaving fullscreen
+    try { navigator.keyboard?.unlock?.(); } catch {}
+    try { await document.exitFullscreen?.(); } catch {}
+
+    lockedRef.current = true;
+    localStorage.setItem("exam_locked", "true");
+
+    // Go to success page with state
+    navigate("/exam/submitted", {
+      state: {
+        confirmationId,
+        submissionTime,
+        examName: attempted.examName,
+        attempted,               // attempts + totals
+      },
+      replace: true,
+    });
+  } catch (err) {
+    console.error("❌ Submission failed:", err);
+    toast.error("Submission failed. Please try again.");
+  }
+};
 
   const formatTime = (secs) => {
     const m = Math.floor(secs / 60);
@@ -422,7 +530,9 @@ const currentTabList = tabLists[activeTab] || [];
 const currentQuestion = currentTabList[currentQuestionIndex] || null;
 
 return (
-  <div className="min-h-screen bg-slate-50 text-slate-900">
+  <div ref={fsRef} className="min-h-screen bg-slate-50 text-slate-900">
+
+
     {/* Toasts (needed so your warning/info/error messages render) */}
     <ToastContainer position="top-right" pauseOnFocusLoss={false} />
 

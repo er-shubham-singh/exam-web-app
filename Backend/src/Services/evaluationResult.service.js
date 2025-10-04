@@ -10,6 +10,15 @@ import CodingAttempt from "../Modal/codingAttempt.model.js";
 import { evaluateTheory } from "../Config/ai.theory.config.js";
 
 const isValidObjectId = mongoose.Types.ObjectId.isValid;
+function escapeHtml(s = "") {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 
 function cosineSimilarity(a, b) {
   const dot = a.reduce((sum, v, i) => sum + v * b[i], 0);
@@ -57,7 +66,6 @@ function simpleLocalEvaluate({ code, language, tests = [], compareMode = "trimme
   }));
   return { results, summary: { passedCount: 0, totalCount: tests.length } };
 }
-
 
 export async function evaluateTheoryWithModel(studentAnswer, modelAnswer, maxMarks = 5) {
   const { marks, similarity } = await evaluateTheory(studentAnswer, modelAnswer, maxMarks);
@@ -401,34 +409,100 @@ else if (qType === "CODING") {
   const domainName = studentExam.exam?.domain?.domain || "Exam";
   const paperTitle = studentExam.exam?.title || "Exam";
 
-  try {
-    const fromEmail = process.env.BREVO_FROM_EMAIL?.trim();
-    const fromName  = process.env.BREVO_FROM_NAME?.trim() || 'Exam Portal';
-    const replyTo   = process.env.REPLY_TO_EMAIL?.trim() || fromEmail;
+try {
+  const fromEmail = process.env.SMTP_USER?.trim();              // ✅ correct env
+  const fromName  = process.env.SMTP_FROM_NAME?.trim() || "Exam Portal";
+  const replyTo   = process.env.REPLY_TO_EMAIL?.trim() || fromEmail;
 
-    console.log(`📨 Sending mail to ${email}...`);
-    console.log(`From: ${fromName} <${fromEmail}>`);
-    console.log(`Reply-To: ${replyTo}`);
+  const to = studentExam?.student?.email?.trim();
+  const studentName = studentExam?.student?.name || "Student";
 
-    if (!fromEmail || !fromEmail.includes('@')) {
-      throw new Error('BREVO_FROM_EMAIL must be a valid email and verified in Brevo');
-    }
+  console.log(`📨 Sending result mail to ${to}...`);
+  console.log(`From: ${fromName} <${fromEmail}>`);
+  console.log(`Reply-To: ${replyTo}`);
 
-    await transporter.sendMail({
-      from:  `${fromName} <${fromEmail}>`,
-      to: studentExam.student?.email,
-      subject: `Exam Result: ${paperTitle}`,
-      html: `
-      <p>Hi ${studentExam.student?.name || "Student"},</p>
-      <p>Your exam <strong>${paperTitle}</strong> in domain <strong>${domainName}</strong> has been evaluated.</p>
-      <p>Total Score: <strong>${totalScore}</strong></p>
-      <p>MCQ: ${mcqScore}/${mcqTotal}</p>
-      <p>Theory: ${theoryScore}/${theoryTotal}</p>
-      <p>Coding: ${codingScore}/${codingTotal}</p>
-      <p>Thank you for your effort!</p>
-    `,
-    });
-  } catch (mailErr) {
+  if (!fromEmail || !fromEmail.includes("@")) {
+    throw new Error("SMTP_USER must be a valid email address.");
+  }
+  if (!to || !to.includes("@")) {
+    throw new Error("Recipient email is missing or invalid.");
+  }
+
+  // Safe defaults to avoid "undefined" in the email body
+  const safe = (v, def = 0) => (typeof v === "number" ? v : (v ?? def));
+  const _mcqScore   = safe(mcqScore);
+  const _mcqTotal   = safe(mcqTotal);
+  const _theoryScore= safe(theoryScore);
+  const _theoryTotal= safe(theoryTotal);
+  const _codingScore= safe(codingScore);
+  const _codingTotal= safe(codingTotal);
+  const _totalScore = safe(totalScore);
+
+  const subject = `Exam Result • ${paperTitle} (${domainName})`;
+
+  // Plain-text fallback
+  const text = `Hi ${studentName},
+
+Your exam "${paperTitle}" in "${domainName}" has been evaluated.
+
+Total Score: ${_totalScore}
+MCQ:   ${_mcqScore}/${_mcqTotal}
+Theory:${_theoryScore}/${_theoryTotal}
+Coding:${_codingScore}/${_codingTotal}
+
+Thank you for your effort!
+`;
+
+  // Simple, clean HTML
+  const html = `
+    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111">
+      <p>Hi ${escapeHtml(studentName)},</p>
+      <p>Your exam <strong>${escapeHtml(paperTitle)}</strong> in domain <strong>${escapeHtml(domainName)}</strong> has been evaluated.</p>
+
+      <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:520px">
+        <tr>
+          <td style="padding:10px 12px;background:#0ea5e9;color:#fff;font-weight:700;border-radius:8px 8px 0 0">Total Score</td>
+        </tr>
+        <tr>
+          <td style="padding:12px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px">
+            <div style="font-size:18px;font-weight:700">${_totalScore}</div>
+            <div style="margin-top:8px">
+              <div>MCQ: <strong>${_mcqScore}</strong> / ${_mcqTotal}</div>
+              <div>Theory: <strong>${_theoryScore}</strong> / ${_theoryTotal}</div>
+              <div>Coding: <strong>${_codingScore}</strong> / ${_codingTotal}</div>
+            </div>
+          </td>
+        </tr>
+      </table>
+
+      <p style="margin-top:16px">Thank you for your effort!</p>
+      <hr style="border:none;border-top:1px solid #eee;margin:16px 0"/>
+      <p style="font-size:12px;color:#6b7280">
+        This email was sent by ${escapeHtml(fromName)}.
+        If you have questions, reply to <a href="mailto:${escapeHtml(replyTo)}">${escapeHtml(replyTo)}</a>.
+      </p>
+    </div>
+  `;
+
+  const info = await transporter.sendMail({
+    from: `${fromName} <${fromEmail}>`,
+    to,
+    replyTo,
+    subject,
+    text,
+    html,
+    // Keep it simple for Gmail; no Brevo headers
+    // headers: { },
+  });
+
+  console.log("✅ Result email sent", {
+    messageId: info?.messageId,
+    accepted: info?.accepted,
+    rejected: info?.rejected,
+    response: info?.response,
+  });
+
+}catch (mailErr) {
     console.error("Failed to send evaluation email:", mailErr);
   }
 

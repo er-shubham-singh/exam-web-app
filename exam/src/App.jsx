@@ -9,21 +9,30 @@ import UserAuthPage from './Pages/users/UserAuthPage'
 import ResultPage from './Pages/ResultPage'
 import Precheck from './Pages/users/Precheck'
 import LoginForm from './Component/Auth/LoginForm'
+import SwitchDomain from './Pages/SwitchDomain'
+import SubmissionSuccess from './Pages/users/SubmissionSuccess'
+import RequireAuth from './Component/Auth/RequireAuth'
 
 function App() {
   const [count, setCount] = useState(0)
 
   return (
     <>
-      <Routes>
-        <Route path="/" element={<LoginForm />} />
-        <Route path="/user" element={<UserAuthPage />} />
-        <Route path="/precheck" element={<Precheck /> } />
-        <Route path="/exam" element={<ExamPage />} /> {/* ✅ fixed */}
-        <Route path="/student/result" element={<ResultPage /> } />
-        <Route path="/auth/login" element={<UserAuthPage isLoginDefault={true} />} />
-        <Route path="/auth/register" element={<UserAuthPage isLoginDefault={false} />} />
-      </Routes>
+<Routes>
+  {/* Public */}
+  <Route path="/" element={<LoginForm />} />
+  <Route path="/switch-domain" element={<SwitchDomain />} />
+  <Route path="/auth/login" element={<UserAuthPage isLoginDefault={true} />} />
+  <Route path="/auth/register" element={<UserAuthPage isLoginDefault={false} />} />
+
+  {/* Protected */}
+  <Route element={<RequireAuth />}>
+    <Route path="/precheck" element={<Precheck />} />
+    <Route path="/exam" element={<ExamPage />} />
+    <Route path="/student/result" element={<ResultPage />} />
+    <Route path="/exam/submitted" element={<SubmissionSuccess />} />
+  </Route>
+</Routes>
     </>
   )
 }

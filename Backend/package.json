@@ -25,6 +25,7 @@
     "nodemailer": "^7.0.5",
     "nodemailer-brevo-transport": "^2.2.1",
     "openai": "^5.19.1",
+    "p-limit": "^7.1.1",
     "resend": "^6.1.0",
     "socket.io": "^4.8.1"
   }
